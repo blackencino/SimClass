@@ -1,0 +1,112 @@
+<h2>Introduction</h2>
+The goal of this four-week course is to teach the basic structure of physical simulation engines, from a coding perspective. At the end of this class, if you have chosen to follow along with the coursework at home, you will have constructed a simple 2D navier-stokes fluid solver, which will run in a web browser.
+<p>
+This class will be taught with a programming focus, and will use source code to illustrate the basic concepts that most simulation engines have in common. The field of physical simulation is vast, and rather than trying to encompass the whole field in a scattershot way, we will attempt to learn an introduction by focusing on a simple simulation.
+
+<h2>Prerequisites</h2>
+We will use the <a href="http://processing.org/">Processing</a> programming language, as ported into the web browser via the javascript library 
+<a href="http://processingjs.org/">Processing.js</a>. Processing is a C-like language, specifically geared towards small graphics applications.  We will be working in the processing language directly, rather than in Javascript.
+<p>
+To try out the example code in our tutorials, you have a few options. Firstly, you can download the Processing execution environment, which will run outside a web-browser, and will offer a more robust development environment. However, I prefer to simply develop in a web context directly, and indeed this blog post directly contains
+the source code for the examples shown.
+<p>
+A great website that allows for coding directly in Processing is <a href="http://jsfiddle.net">JS Fiddle</a>. To use it, create an account and log in - then, from the uppermost menu on the left that says "Frameworks & Extensions", select "Processing.js 1.4.1".  Then, in the upper left quadrant, simply enter your processing code surrounded by an HTML5 canvas element and an HTML script wrapper. To see your code run, press the "Run" button in the top menu, and your result will appear in the lower right quadrant.  Here's a link to a simple processing.js starting point in jsfiddle: <a href="http://jsfiddle.net/blackencino/69XbG/1/">JS Fiddle Processing Hello World</a>.  Thank you MTF for showing me this amazing website!
+
+<p>
+<script type="application/processing" data-processing-target="pjs">
+// --------------------------------
+// Init Global vars
+// --------------------------------
+
+  // --------------------------------
+  // Some config options 
+  // for our simulator
+  //
+  //Grid resolution per side
+  int NX = 128;
+  int NY = 128;
+  int CellSize = 4;
+
+  // Our Window will be made of "gridRes" cells,
+  // where each cell is "cellSize" pixels big.
+  int WindowWidth = CellSize * NX;
+  int WindowHeight = CellSize * NY;
+
+  // The length of all of our (one-dimensional)
+  // arrays. We use 1d arrays rather than matrices
+  // mostly for efficiency reasons.
+  int ArraySize = NX * NY;
+  
+  // density arrays
+  float[] Density = new float[ArraySize];
+
+// --------------------------------
+// Initialize everything
+// --------------------------------
+void setup() {
+
+  //noSmooth();
+  // Set up normalized colors.
+  colorMode(RGB, 1.0);
+
+  noiseSeed( 0 );
+  
+  // The scale of our window
+  size( WindowWidth, WindowHeight );
+  
+  // init density
+  for ( int j = 0; j < NY; j++ )
+  {
+      float fj = j;
+      for ( int i = 0; i < NX; i++ )
+      {
+          float fi = i;
+          Density[ i + (NX*j) ] = noise( fi / 16.0, fj / 16.0 );
+      }
+  }
+}
+
+
+// --------------------------------
+// Draw the density field
+// --------------------------------
+void drawFloatArray( float[] i_values )
+{
+  loadPixels();
+  for ( int wj = 0; wj < height; ++wj )
+  {
+      int j = ( int )( wj / CellSize );
+
+      for ( int wi = 0; wi < width; ++wi )
+      {
+          int i = ( int )( wi / CellSize );
+
+          float d = i_values[ i + (j*NX) ];
+      
+          //colorMode(HSB, 1);
+          //float h = map(d, 0, 1, 0.675, .55);
+          //float s = map(d, 0, 1, 0, 1);
+          //float b = map(d, 0, 1, 1, .25);
+
+          pixels[ wi + wj*width ] = color( d, 1-d, 0.0 );
+      
+    }
+  }
+  updatePixels();
+}
+
+// --------------------------------
+// Draw Everything
+// --------------------------------
+void draw() {
+  
+  background(1);
+  
+  drawFloatArray( Density );
+
+  stroke( 0 );
+  fill( 0 );
+  ellipse( mouseX, mouseY, 25, 25 );
+}
+</script>
+<canvas id="pjs"> </canvas>
