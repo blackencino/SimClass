@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Encino Sim Class : Smoke Solver State</title>
+
+  <style type="text/css" title="currentStyle">
+    @import "css/SimClass.css";
+  </style>
+
+<script src='http://stacyandchristopherhoneymoon.net/js/processing-1.4.1.min.js' type='text/javascript'/>
+</script>
+<!script src="processing-1.4.1.js" type="text/javascript"/>
+<!/script>
+</head>
+<body>
+<h2>Eulerian vs. Lagrangian Simulations</h2>
+The types of physical simulations we do in compute graphics, visual effects,
+animation and games can be very coarsely categorized as either "Eulerian" or
+"Lagrangian". In simple terms, Eulerian Simulations are ones where the 
+locations in space at which the simulation is being performed do not move, 
+though mass may pass through these points. In our simple state examples, the
+water height field is an Eulerian simulation - it has a grid, with a height
+at each point, and every time we draw the grid we draw each rectangle in the
+same horizontal location - the waves will move through the sim points, even
+as the sim points stay in place. The shorthand is "Eulerian = Grids"
+<p>
+By contrast, a Lagrangian simulation is one in which the physical locations
+at which the sim is calculated (and at which knowledge about the system 
+resides) move with the simulation as it is calculated. So, basically, a particle
+system, in which the particle locations change from frame to frame, and the
+physics are performed by looking at the relationships between the particles. The
+shorthand is "Lagrangian = Particles".
+<p>
+Finally, "Hybrid" simulations are ones which use both moving and fixed elements,
+such as using particles and grids simultaneously. The Particle-Level-Set methods
+are good examples of a hybrid system, as is the popular "Flip" fluid simulation
+method.
+<h2>An Eulerian Smoke Grid</h2>
+We're going to create an Eulerian Grid simulation of smoke, in which a 2D
+grid of cells will contain velocities and densities. Just like in the 
+simple state example where we aggregated our state, we'll create a single
+state object and use integer pointers to access different parts of it.
+<p>
+Smoke will require current and previous values for velocity and density,
+arrays to hold input data gathered from the mouse, and finally some scratch
+space to use while calculating. Here's what it looks like - it's not much
+different from our simple state example:
+<p>
+<pre><code>
+
+// Grid resolution per side. Rectangular
+int NX = 62;
+int NY = 62;
+
+// The size of the sim, in "world" units.
+float LX = 100.0;
+
+// Size, in "world" units, of a grid cell.
+// Our cells are uniform (square) so DX & DY are the same.
+float DXY = LX / ( float )NX;
+
+// Y size, keeping square cells.
+float LY = DXY * ( float )NY;
+
+// The size of each grid cell, in pixels.
+// This is for drawing
+int CellPixels = 8;
+
+// The length of all of our (one-dimensional)
+// arrays. We use 1d arrays rather than matrices
+// mostly for efficiency reasons.
+int GridArraySize = GX*GY;
+
+// Our State Arrays
+int NUM_ARRAYS = 12;
+float[][] State = new float[NUM_ARRAYS][GridArraySize];
+int GridPrevU = 0;
+int GridU = 1;
+int GridPrevV = 2;
+int GridV = 3;
+int GridPrevDensity = 4;
+int GridDensity = 5;
+int GridInputU = 6;
+int GridInputV = 7;
+int GridInputDensity = 8;
+int GridTemp0 = 9;
+int GridTemp1 = 10;
+int GridTemp2 = 11;
+
+float VstrokeAlpha = 0.5;
+</code></pre>
+
+That's all for now!
+
+
+</body>

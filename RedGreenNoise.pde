@@ -27,8 +27,8 @@
 // --------------------------------
 // Initialize everything
 // --------------------------------
-void setup() {
-
+void setup() 
+{
   //noSmooth();
   // Set up normalized colors.
   colorMode(RGB, 1.0);
