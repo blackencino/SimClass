@@ -29,7 +29,7 @@ int CellPixels = 8;
 // The rate at which we inject density
 // into the grid by painting with the
 // mouse.
-float EmissionRate = .02;
+float EmissionRate = 1.0;
 float EmissionRadius = 20.0;
 
 // The rate at which density
@@ -50,7 +50,7 @@ float V_damp = 0.0001;
 float DT = 1.0; 
 
 // A scale on input velocity 
-float Vscale = 0.9;
+float Vscale = 0.75;
 
 // Our Window will be made of "gridRes" cells,
 // where each cell is "cellSize" pixels big.
@@ -160,7 +160,7 @@ void GetInputSourceDensity()
                 float er2 = sq( 2.21 * r / EmissionRadius );
                 float v = constrain( 2.0 * exp( -er2 ), 0.0, 1.0 );
 
-                State[GridInputDensity][IX(i,j)] += EmissionRate * v;
+                State[GridInputDensity][IX(i,j)] = EmissionRate * v;
             } 
         }
     } 
@@ -184,8 +184,8 @@ void GetInputSourceVelocity()
 
         float PixelVelX = ( mouseX - pmouseX ) / DT;
         float PixelVelY = ( mouseY - pmouseY ) / DT;
-        float GridVelX = PixelVelX / ( float )CellSize;
-        float GridVelY = PixelVelY / ( float )CellSize;
+        float GridVelX = PixelVelX / ( float )CellPixels;
+        float GridVelY = PixelVelY / ( float )CellPixels;
         float SimVelX = GridVelX * DXY;
         float SimVelY = GridVelY * DXY;
 
@@ -201,8 +201,8 @@ void GetInputSourceVelocity()
                 float er2 = sq( 2.21 * r / EmissionRadius );
                 float v = constrain( 2.0 * exp( -er2 ), 0.0, 1.0 );
       
-                State[GridInputU][IX(i,j)] += SimVelX * Vscale * v;
-                State[GridInputV][IX(i,j)] += SimVelY * Vscale * v;
+                State[GridInputU][IX(i,j)] = SimVelX * Vscale * v;
+                State[GridInputV][IX(i,j)] = SimVelY * Vscale * v;
             } 
         }
     } 
@@ -690,6 +690,7 @@ void setup()
 //-*****************************************************************************
 void DrawScalarField( int i_field )
 {
+    //colorMode(HSB,1);
     loadPixels();
     for ( int wj = 0; wj < height; ++wj )
     {
@@ -705,11 +706,15 @@ void DrawScalarField( int i_field )
             //float h = map(d, 0, 1, 0.675, .55);
             //float s = map(d, 0, 1, 0, 1);
             //float b = map(d, 0, 1, 1, .25);
+            float r = 0.9 * ( 1.0 - pow( d, 0.5 ) );
+            float g = 0.9 * ( 1.0 - pow( d, 1.1 ) );
+            float b = 0.9 * ( 1.0 - pow( d, 2.5 ) );
 
-            pixels[ wi + wj*width ] = color( d, d, d, 1.0 );
+            pixels[ wi + wj*width ] = color( r, g, b );
         }
     }
     updatePixels();
+    //colorMode( RGB, 1);
 }
 
 //-*****************************************************************************

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Encino Sim Class : The Simulation State</title>
+
+  <style type="text/css" title="currentStyle">
+    @import "css/SimClass.css";
+  </style>
+
+<script src='http://processingjs.org/js/processing.min.js' type='text/javascript'/></script>
+</head>
+<body>
+<h2>What is the Simulation State?</h2>
+When we are creating a simulation of a phenomenon, the first and most important
+step in our design is how we choose to encode a description of what we're 
+simulating as a set of numbers. The simulation state is a set of numbers that
+describes the "STATE" of a physical system at a moment in time.
+<p>
+Simulation states come in many sizes and shapes. Generally, one endeavors to
+represent a system with as few numbers as possible, because each separate 
+number is a measurement of the system that will have to have computational
+work done to update its value for the next moment in the time evolution of
+the simulation.
+<p>
+<h2>An Extremely Simple State</h2>
+A very simple simulation we could create is one of a pendulum in two dimensions.
+In this very simple example, the simulation state consists of just two numbers:
+the angle of deviation of the pendulum from its rest position at the current
+time, and the rate of change, or angular velocity, of that angle. Here is a
+diagram showing a simple pendulum from Wikipedia:
+<p>
+<img src="http://upload.wikimedia.org/wikipedia/commons/thumb/b/b2/Simple_gravity_pendulum.svg/500px-Simple_gravity_pendulum.svg.png"></img>
+<p>
+Here's a simple way of representing this simulation state in code:
+
+<pre><code>
+// Length of the pendulum arm, in meters. This is constant, and therefore not
+// really part of the simulation state
+float PendulumLength;
+
+// Angle of the pendulum at the current time, in radians
+float StatePendulumTheta;
+
+// Rate of change of the pendulum angle with respect to time, at the current
+// time, in radians.
+float StatePendulumDthetaDt;
+
+</code></pre>
+
+Note that the code takes care to define what units it is working in.
+As a rule, it is a good idea to insist that your simulation work in SI 
+units, with conversion to and from other units done as part of scene 
+translation and export.  In this case, we're using meters to specify our
+pendulum length, and radians to specify our angles.
+
+<h2>A Second, Simple State</h2>
+The previous pendulum state is extremely simple, and to illustrate a different
+type of state, let's imagine that we have a horizontal cross-section of an
+ocean wave, and we want to represent the height of the wave at each point 
+horizontally.  This example requires us to consider the notion of spatial 
+resolution - the higher resolution a simulation state is, the finer the details
+it can represent, but generally the more computational work and resources
+it will require.  Let's imagine that our wave cross section covers ten meters
+of space, and that we'd like to have a measurement of the wave's height every
+ten centimeters. Using meters as a representational unit, our state description
+for just the height part of the state will look like this:
+
+<pre><code>
+// Size of the world, in meters.
+float WorldSize = 10.0;
+
+// Distance between two adjacent measurements of height, in meters:
+// (.1 meters is 10 centimeters)
+float DX = 0.1;
+
+// The array of heights representing the wave in this 10-meter
+// world, at a given time. 
+int ArraySize = ( int )ceil( WorldSize / DX );
+
+// Allocating the Height Array.
+float[] StateHeightArray = new float[ArraySize];
+
+</code></pre>
+
+Notice that in this second state example, the size of the state arrays is 
+actually calculated from the size of the world we're simulating and the 
+resolution we've chosen to simulate at.  Simulation code usually offers 
+multiple ways of determining the ultimate state size - either specifying the
+number of elements in the state, corresponding to a given world size, which
+will determine the spacing and resolution of the state, or alternatively
+specifying the spacing resolution, which determines the number of elements
+in the state, as in the above example. Here's what the code would look like
+if we were specifying the number of elements in the array directly, instead
+of the spacing:
+
+<pre><code>
+// Size of the world, in meters.
+float WorldSize = 10.0;
+
+// Array Size
+int ArraySize = 100;
+
+// Distance between two adjacent measurements of height, in meters:
+float DX = WorldSize / ( float )ArraySize;
+
+// Allocating the Height Array.
+float[] StateHeightArray = new float[ArraySize];
+</code></pre>
+
+<h2>Two More Complex State Examples</h2>
+
+The above two examples are both extremely simple, and have a small number of 
+state variables. Here is an example of a more complex state - in this case,
+representing a number of particles which have a number of attributes per 
+particle - position, mass, velocity, etc. Some, but not all, of these attributes
+have values at the current time AND at the previous simulated point in time, 
+all of which is stored as part of the simulation state. In this example,
+there is a fixed maximum number of particles, and a number of them that are
+considered currently alive.
+
+<pre><code>
+// Max number of particles.
+int MAX_NUM_PARTICLES = 1024;
+int ArraySize = MAX_NUM_PARTICLES;
+
+// Number of active particles.
+int N;
+
+// Particle data arrays. Note that we make a separate array for each
+// piece of particle data, separating even the vector components.
+// This illustrates the simulation design idiom: 
+// "structs of arrays, rather than arrays of structs".
+float[] StateMass       = new float[ArraySize];
+float[] StateRadius     = new float[ArraySize];
+float[] StatePosX       = new float[ArraySize];
+float[] StatePosY       = new float[ArraySize];
+float[] StateVelX       = new float[ArraySize];
+float[] StateVelY       = new float[ArraySize];
+float[] StatePrevPosX   = new float[ArraySize];
+float[] StatePrevPosY   = new float[ArraySize];
+</code></pre>
+
+This second state example represents a height field in 1D, like above,
+with multiple measurements at each point.
+
+<pre><code>
+// Size of the world, in meters.
+float WorldSize = 10.0;
+
+// Distance between two adjacent measurements of height, in meters:
+// (.1 meters is 10 centimeters)
+float DX = 0.1;
+
+// The array of heights representing the wave in this 10-meter
+// world, at a given time. 
+int ArraySize = ( int )ceil( WorldSize / DX );
+
+// Allocating the Height Array.
+float[] StateHeight       = new float[ArraySize];
+float[] StateDheightDt    = new float[ArraySize];
+float[] StatePressure     = new float[ArraySize];
+float[] StateFloorHeight  = new float[ArraySize];
+float[] StatePrevHeight   = new float[ArraySize];
+</code></pre>
+
+<h2>Design Idioms and Best Practices</h2>
+
+The examples have a lot of things in common, and indeed, these form the
+basis for what I would call "good simulation design practices". Each example 
+above is representing a different physical
+system - first a simple pendulum, then a simple height field, then finally
+a system of many particles with multiple measurements per particle, and finally
+a more complex wave example. However, they all use the same code conventions.
+Each one calls its array sizes "ArraySize", each one prefaces the variable
+names of its simulation state with the word "State". Each of the examples
+that uses a grid of values uses the same conventions for its world description:
+WorldSize, DX, and so on.
+
+This is an extremely important part of simulation code design - coming up
+with a very consistent standard for naming of arrays and variables, and
+rigorously adhering to the standard.  This will ultimately allow you to reuse
+code easily, and also to rely on template patterns to apply common operations
+across different simulation implementations.  The lion's share of simulation
+coding involves defining and employing these standards.
+
+<h2>The State Vector</h2>
+In each of the above examples, we've created a separate, specifically named
+array to store each separate simulation measurement. Taken together, these
+measurements collectively form what we consider the entire "state".   Most
+likely, your simulation will also feature some storage that is temporary,
+representing quantities that are computed as part of the calculation of 
+permanent state properties - as an example, on the road to computing pressure
+in a smoke simulation, a temporary measurement called "divergence" is
+computed, but it is not usually considered formally part of the simulation state
+because it can be wholly derived from other parts.
+<p>
+Suppose, instead of explicitly naming each separate field of our simulation
+state, we instead created a single pool of storage for the state, with each
+part of it concatenated together. We could use indexing expressions to get
+to the right part of the large array for each individual property, and then
+we would be able to see more clearly that our Simulation State was in fact
+a single representational object.
+<p>
+The name of this single array of storage for a simulation state is the
+"State Vector". Here's an example of how this might work in code for a 
+state consisting of several distinct fields, and using a multi-dimensional
+array to represent the concatenation of the fields together.
+<pre><code>
+int ArraySize = 1024;
+int NumStateArrays = 8;
+float[][] State = new float[NumStateArrays][ArraySize];
+int StateIndexMass = 0;
+int StateIndexRadius = 1;
+int StateIndexPosX = 2;
+int StateIndexPosY = 3;
+int StateIndexVelX = 4;
+int StateIndexVelY = 5;
+int StateIndexPrevPosX = 6;
+int StateIndexPrevPosY = 7;
+
+// To access the x-position of particle i:
+float xPos = State[StateIndexPosX][i];
+</code></pre>
+
+</body>
