@@ -54,7 +54,7 @@ void DrawState()
 }
 
 // The draw function creates a transformation matrix between pixel space
-// and simulation space, in meters, and then calls the DrawSim function.
+// and simulation space, in meters, and then calls the DrawState function.
 // Unfortunately, there is currently a bug in processing.js with concatenated
 // transformation matrices, so we have to do the coordinate scaling ourselves
 // in the draw function.

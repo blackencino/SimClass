@@ -9,8 +9,8 @@
 //-*****************************************************************************
 
 // Grid resolution per side. Rectangular
-int NX = 64;
-int NY = 64;
+int NX = 62;
+int NY = 62;
 
 // The size of the sim, in "world" units.
 float LX = 100.0;
@@ -29,8 +29,9 @@ int CellPixels = 8;
 // The rate at which we inject density
 // into the grid by painting with the
 // mouse.
-float EmissionRate = 1.0;
-float EmissionRadius = 20.0;
+float EmissionRate = 2.0;
+float DenEmissionRadius = 15.0;
+float VelEmissionRadius = 20.0;
 
 // The rate at which density
 // diffuses (dissipates)
@@ -66,6 +67,12 @@ int GY = NY+2;
 // arrays. We use 1d arrays rather than matrices
 // mostly for efficiency reasons.
 int GridArraySize = GX*GY;
+
+// Whether to display velocities.
+boolean DisplayVelocity = false;
+
+PImage StateImage = createImage( GX, GY, RGB );
+
 
 //-*****************************************************************************
 //-*****************************************************************************
@@ -157,7 +164,7 @@ void GetInputSourceDensity()
                 float cellMidPointX = CellPixels * ( 0.5 + ( float )i );
 
                 float r = dist( mouseX, mouseY, cellMidPointX, cellMidPointY );
-                float er2 = sq( 2.21 * r / EmissionRadius );
+                float er2 = sq( 2.21 * r / DenEmissionRadius );
                 float v = constrain( 2.0 * exp( -er2 ), 0.0, 1.0 );
 
                 State[GridInputDensity][IX(i,j)] = EmissionRate * v;
@@ -198,7 +205,7 @@ void GetInputSourceVelocity()
                 float cellMidPointX = CellPixels * ( 0.5 + ( float )i );
 
                 float r = dist( mouseX, mouseY, cellMidPointX, cellMidPointY );
-                float er2 = sq( 2.21 * r / EmissionRadius );
+                float er2 = sq( 2.21 * r / VelEmissionRadius );
                 float v = constrain( 2.0 * exp( -er2 ), 0.0, 1.0 );
       
                 State[GridInputU][IX(i,j)] = SimVelX * Vscale * v;
@@ -690,31 +697,34 @@ void setup()
 //-*****************************************************************************
 void DrawScalarField( int i_field )
 {
-    //colorMode(HSB,1);
-    loadPixels();
-    for ( int wj = 0; wj < height; ++wj )
+    float pixr, pixg, pixb;
+    float d;
+    StateImage.loadPixels();
+    //for ( int wj = 0; wj < height; ++wj )
+    for ( int wj = 0; wj < GY; ++wj )
     {
-        int j = constrain( 1+( int )( wj / CellPixels ), 1, NY ); 
+        //int j = constrain( 1+( int )( (( float )wj) / (( float )CellPixels) ), 1, NY ); 
 
-        for ( int wi = 0; wi < width; ++wi )
+        //for ( int wi = 0; wi < width; ++wi )
+        for ( int wi = 0; wi < GX; ++wi )
         {
-            int i = constrain( 1+( int )( wi / CellPixels ), 1, NX );
+            //int i = constrain( 1+( int )( (( float )wi) / (( float )CellPixels) ), 1, NX );
 
-            float d = State[i_field][IX(i,j)];
+            d = constrain( State[i_field][IX(wi,wj)], 0.0, 1.0 );
 
             //colorMode(HSB, 1);
             //float h = map(d, 0, 1, 0.675, .55);
             //float s = map(d, 0, 1, 0, 1);
             //float b = map(d, 0, 1, 1, .25);
-            float r = 0.9 * ( 1.0 - pow( d, 0.5 ) );
-            float g = 0.9 * ( 1.0 - pow( d, 1.1 ) );
-            float b = 0.9 * ( 1.0 - pow( d, 2.5 ) );
+            pixr = 0.9 * ( 1.0 - d );
+            pixg = 0.9 * ( 1.0 - (d*d) );
+            pixb = 0.9 * ( 1.0 - (d*d*d) );
 
-            pixels[ wi + wj*width ] = color( r, g, b );
+            StateImage.pixels[ wi + (wj*GX) ] = color( pixr, pixg, pixb );
         }
     }
-    updatePixels();
-    //colorMode( RGB, 1);
+    StateImage.updatePixels();
+    image( StateImage, 0, 0, width, height );
 }
 
 //-*****************************************************************************
@@ -732,8 +742,8 @@ void DrawVelocityField( int i_fieldU, int i_fieldV )
                 float lineStartX = CellPixels * ( 0.5 + ( float )( i ) );
                 float lineStartY = CellPixels * ( 0.5 + ( float )( j ) );
 
-                float lineDX = State[i_fieldU][IX(i,j)]/Vscale;
-                float lineDY = State[i_fieldV][IX(i,j)]/Vscale;
+                float lineDX = 20.0 * State[i_fieldU][IX(i,j)]/Vscale;
+                float lineDY = 20.0 * State[i_fieldV][IX(i,j)]/Vscale;
                 float lineLen = sqrt( sq( lineDX ) + sq( lineDY ) );
 
                 float vmag = map( lineLen, 0, 5, 0.1, 1);
@@ -755,6 +765,16 @@ void DrawVelocityField( int i_fieldU, int i_fieldV )
 }
 
 //-*****************************************************************************
+// Key release function
+void keyReleased()
+{
+    if ( key == 118 )
+    {
+        DisplayVelocity = !DisplayVelocity;
+    }  
+}
+
+//-*****************************************************************************
 //-*****************************************************************************
 // PROCESSING DRAW FUNCTION
 //-*****************************************************************************
@@ -763,10 +783,13 @@ void DrawVelocityField( int i_fieldU, int i_fieldV )
 //-*****************************************************************************
 void draw()
 {
-    //background( 1 );
+    background( 0.5 );
 
     FluidTimeStep();
 
     DrawScalarField( GridDensity );
-    //DrawVelocityField( GridU, GridV );
+    if ( DisplayVelocity )
+    {
+        DrawVelocityField( GridU, GridV );
+    }
 }
