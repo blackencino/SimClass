@@ -223,11 +223,13 @@ approximation. An alternative midpoint-method approach is called
 Velocity Verlet</a>, and it looks like this:
 
 <div class="LaTexEquation">
+    \(
     a( t ) = f( t, x( t ) ) \\
     v( t + \frac{\Delta t}{2} ) \approx v(t) + \frac{\Delta t}{2} a( t ) \\
     x( t + \Delta t ) \approx x( t ) + \Delta t v( t + \frac{\Delta t}{2} ) \\
     a( t + \Delta t ) = f( t+\Delta t, x( t + \Delta t ) \\
     v( t + \Delta t ) \approx v( t + \frac{\Delta t}{2} ) + \frac{\Delta t}{2} a( t + \Delta t )
+    \)
 </div>
 
 And here's what that looks like in code:
