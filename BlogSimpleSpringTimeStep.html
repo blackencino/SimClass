@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Encino Sim Class : Simple Spring Time Step</title>
+
+  <style type="text/css" title="currentStyle">
+    @import "css/SimClass.css";
+  </style>
+
+<script src='http://processingjs.org/js/processing.min.js' type='text/javascript'/></script>
+<!Install the MathJax stuff so we can show LaTeX>
+<script type="text/javascript"
+  src="https://c328740.ssl.cf1.rackcdn.com/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML">
+</script>
+</head>
+<body>
+<h2>Computing Changes in the Simulation State</h2>
+Now that we've defined the simulation state in the previous class, and made
+an effort to make sure we can display our simulation state, it's time to get
+to the interesting bit : simulating a change in the system over time. Note
+that not all simulations involve change over time - for example the calculation
+of material stress in a crane supporting a heavy weight. But, for our purposes,
+we'll focus on examples that involve matter moving in time.
+
+<h2>A Simple Spring System</h2>
+In order to evaluate the behavior of different motion simulation techniques,
+we need to work with a system that has an exact solution that we can easily
+calculate, so we can compare our simulation results to the theoretical 
+correct results. A mass connected to a spring, with the spring initially 
+stretched out, provides such a system. We'll create a state and draw routine
+that looks very similar to the simple the pendulum state from the previous
+class. We have a stiffness for the spring and a mass for the weight at the
+end of the string as configuration parameters. We restrict the mass
+to only move left and right, so we only store positions and velocities
+in the X dimension.
+
+<pre><code>
+float Stiffness = 1.0;
+float BobMass = 0.5;
+int StateSize = 3;
+float[] InitState = new float[StateSize];
+float[] State = new float[StateSize];
+int StateCurrentTime = 0;
+int StatePositionX = 1;
+int StateVelocityX = 2;
+
+int WindowWidthHeight = 300;
+float WorldSize = 2.0;
+float PixelsPerMeter;
+float OriginPixelsX;
+float OriginPixelsY;
+
+void setup()
+{
+    // Create initial state.
+    InitState[StateCurrentTime] = 0.0;
+    InitState[StatePositionX] = 0.65;
+    InitState[StateVelocityX] = 0.0;
+
+    // Copy initial state to current state.
+    // notice that this does not need to know what the meaning of the
+    // state elements is, and would work regardless of the state's size.
+    for ( int i = 0; i < StateSize; ++i )
+    {
+        State[i] = InitState[i];
+    }
+
+    // Set up normalized colors.
+    colorMode( RGB, 1.0 );
+    
+    // Set up the stroke color and width.
+    stroke( 0.0 );
+    //strokeWeight( 0.01 );
+    
+    // Create the window size, set up the transformation variables.
+    size( WindowWidthHeight, WindowWidthHeight );
+    PixelsPerMeter = (( float )WindowWidthHeight ) / WorldSize;
+    OriginPixelsX = 0.5 * ( float )WindowWidthHeight;
+    OriginPixelsY = 0.5 * ( float )WindowWidthHeight;
+}
+
+// Draw our State, with the unfortunate units conversion.
+void DrawState()
+{
+    // Compute end of arm.
+    float SpringEndX = PixelsPerMeter * State[StatePositionX];
+
+    // Draw the spring.
+    strokeWeight( 1.0 );
+    line( 0.0, 0.0, SpringEndX, 0.0 );
+          
+    // Draw the spring pivot
+    fill( 0.0 );
+    ellipse( 0.0, 0.0, 
+             PixelsPerMeter * 0.03, 
+             PixelsPerMeter * 0.03 );
+    
+    // Draw the spring bob
+    fill( 1.0, 0.0, 0.0 );
+    ellipse( SpringEndX, 0.0, 
+             PixelsPerMeter * 0.1, 
+             PixelsPerMeter * 0.1 );
+}
+
+// Processing Draw function, called every time the screen refreshes.
+void draw()
+{
+    background( 0.75 );
+
+    // Translate to the origin.
+    translate( OriginPixelsX, OriginPixelsY );
+
+    // Draw the simulation
+    DrawState();
+}
+</pre></code>
+Here's what that looks running in Processing - this, again, is just a repeat of
+the previous class's state initialization and drawing ideas, extended a little
+to include the notion of an initial state as separate from the state itself.
+
+<p>
+<script type="application/processing" data-processing-target="pjsSpringSimp1">
+float Stiffness = 1.0;
+float BobMass = 0.5;
+int StateSize = 3;
+float[] InitState = new float[StateSize];
+float[] State = new float[StateSize];
+int StateCurrentTime = 0;
+int StatePositionX = 1;
+int StateVelocityX = 2;
+
+int WindowWidthHeight = 300;
+float WorldSize = 2.0;
+float PixelsPerMeter;
+float OriginPixelsX;
+float OriginPixelsY;
+
+void setup()
+{
+    // Create initial state.
+    InitState[StateCurrentTime] = 0.0;
+    InitState[StatePositionX] = 0.65;
+    InitState[StateVelocityX] = 0.0;
+
+    // Copy initial state to current state.
+    // notice that this does not need to know what the meaning of the
+    // state elements is, and would work regardless of the state's size.
+    for ( int i = 0; i < StateSize; ++i )
+    {
+        State[i] = InitState[i];
+    }
+
+    // Set up normalized colors.
+    colorMode( RGB, 1.0 );
+    
+    // Set up the stroke color and width.
+    stroke( 0.0 );
+    //strokeWeight( 0.01 );
+    
+    // Create the window size, set up the transformation variables.
+    size( WindowWidthHeight, WindowWidthHeight );
+    PixelsPerMeter = (( float )WindowWidthHeight ) / WorldSize;
+    OriginPixelsX = 0.5 * ( float )WindowWidthHeight;
+    OriginPixelsY = 0.5 * ( float )WindowWidthHeight;
+}
+
+// Draw our State, with the unfortunate units conversion.
+void DrawState()
+{
+    // Compute end of arm.
+    float SpringEndX = PixelsPerMeter * State[StatePositionX];
+
+    // Draw the spring.
+    strokeWeight( 1.0 );
+    line( 0.0, 0.0, SpringEndX, 0.0 );
+          
+    // Draw the spring pivot
+    fill( 0.0 );
+    ellipse( 0.0, 0.0, 
+             PixelsPerMeter * 0.03, 
+             PixelsPerMeter * 0.03 );
+    
+    // Draw the spring bob
+    fill( 1.0, 0.0, 0.0 );
+    ellipse( SpringEndX, 0.0, 
+             PixelsPerMeter * 0.1, 
+             PixelsPerMeter * 0.1 );
+}
+
+// Processing Draw function, called every time the screen refreshes.
+void draw()
+{
+    background( 0.75 );
+
+    // Translate to the origin.
+    translate( OriginPixelsX, OriginPixelsY );
+
+    // Draw the simulation
+    DrawState();
+}
+</script>
+<canvas id="pjsSpringSimp1"> </canvas>
+
+<h2>Motion of a Simple Spring</h2>
+The equation of motion for a simple spring is um, simple:
+
+<div class="LaTexEquation">
+    \(
+    F = -k x
+    \)
+</div>
+
+Where F is force, k is a constant representing the stiffness of the spring, and
+x is the position of the mass. This simple system is known as a
+<a href="http://en.wikipedia.org/wiki/Harmonic_oscillator">Harmonic Oscillator
+</a>. As we almost always do in physics, unless we're
+those weird quantum folks, we consult 
+<a href="http://en.wikipedia.org/wiki/Newton's_laws_of_motion">
+    Newton's Laws of Motion</a>, specifically the second one, which as the 
+world's second most famous equation, says:
+
+<div class="LaTexEquation">
+    \(
+    F = m a
+    \)
+</div>
+
+Where F again, is force, m is mass, in this case the mass of the object at 
+the end of our simple spring, and a is the acceleration of the object. By
+definition, acceleration is the rate of change of velocity over time, and
+velocity is the rate of change of position over time. In this simple system,
+that can be expressed in the following way, using derivatives:
+
+<div class="LaTexEquation">
+    \(
+    v = \frac{dx}{dt} \\
+    a = \frac{dv}{dt} = \frac{d^2 x}{dt^2}
+    \)
+</div>
+
+We often use the prime and double-prime notation as a shorthand for 
+differentiation by time, which looks like this:
+
+<div class="LaTexEquation">
+    \(
+    v = x' \\
+    a = v' = x''
+    \)
+</div>
+
+Using the equations above, and substituting for acceleration, the simple
+spring equation becomes:
+
+<div class="LaTexEquation">
+    \(
+    x'' = \frac{-k}{m} x
+    \)
+</div>
+
+
+What we see here is what is known as an 
+<a href="http://en.wikipedia.org/wiki/Ordinary_differential_equation">
+Ordinary Differential Equation</a>, or <b>ODE</b> for short. <b>ODE</b>'s are
+equations which relate a variable (in our case the position, x), to one
+or more derivatives of that variable with respect to a single other variable, 
+(in our case time, t).
+Most simulations of motion are numerical approximations of <b>ODE</b>'s, or 
+more commonly, 
+<a href="http://en.wikipedia.org/wiki/Partial_differential_equation">
+Partial Differential Equations</a>, in which multiple quantities will be
+equated to the partial derivatives of those quantities with respect to 
+multiple other quantities, not just time. We call those <b>PDE</b>'s for short,
+of course.
+<p>
+This equation expresses a relationship that holds true at any moment in time,
+and in this very simple case, there actually is an exact solution to the
+equation as a calculable function of time t, given an initial condition of
+position = x0 and velocity = v0:
+
+<div class="LaTexEquation">
+    \(
+    x(0) = x_0 \\
+    x'(0) = v(0) = v_0 \\
+    x(t) = x_0 \cos( \sqrt{ \frac{k}{m} } t ) + 
+            \frac{v_0}{\sqrt{\frac{k}{m}}} 
+            \sin( \sqrt{ \frac{k}{m} } t )
+    \)
+</div>
+
+We chose this simple case precisely because it did have an exact solution that
+we will be able to use to compare our simulation results to. However, it is
+not usually true that there is an explicit, closed-form equation of time
+like the one above that can be simply evaluated for the solution to the
+system at any given time. For example, the equation for the angular acceleration
+of the pendulum from our previous class is:
+
+<div class="LaTexEquation">
+    \(
+    \theta'' = -\frac{g}{L} \sin( \theta )
+    \)
+</div>
+
+This equation does not have a simple solution, and that will be true for
+anything interesting enough to bother simulating.
+Therefore, in order
+to calculate the position of the pendulum at some specific time Tk, we'll have
+to start at our initial time T0, and slowly iterate the solution forward
+through small, discrete increments of time, with each new time's solution being
+based on the previous time's solution. These time increments are usually
+very small. In the film world we work in 24 frames per second (or
+25, or 30, or 48, or 60...), and simulations often require smaller steps in
+order to compute good results that are stable 
+(a concept we'll explore more later).
+
+<h2>Numerical Solutions to Differential Equations</h2>
+The general idea of solving differential equations by evaluating approximations
+to the equations on discrete points is generally called 
+<a href="http://en.wikipedia.org/wiki/Numerical_ordinary_differential_equations">
+Numerical Integration</a>. The family of solution strategies that fall 
+into this category rely on a linear approximation to derivatives and partial
+derivatives called a
+<a href="http://en.wikipedia.org/wiki/Finite_difference">Finite Difference
+Equation</a>.
+<p>
+Suppose we have a function of time, \(f(t)\). We can approximate the value of 
+the derivative \(f'(t)\) in the following manner:
+
+<div class="LaTexEquation">
+    \(
+    f'(t) \approx \frac{f(t+\Delta t) - f(t)}{\Delta t}
+    \)
+</div>
+Suppose, as in a case like ours, we have an expression that we can evaluate
+for a derivative, but we cannot evaluate the function directly. (This is the
+general problem of dynamic simulation). We can rearrange the equation above
+so that we have an expression for the function at the new time, written in
+terms of the values at the current time:
+
+<div class="LaTexEquation">
+    \(
+    f(t+\Delta t) \approx f(t) + \Delta t f'(t)
+    \)
+</div>
+Assuming we know the value at just one single time t0,
+for the function f, the "initial value", we can use the equation above to
+find the next value, and then the next, and so on, like so:
+
+<div class="LaTexEquation">
+    \(
+    f(t_0) = f_0 \\
+    f(t_0+\Delta t) = f_0 + \Delta t f'(t_0) \\
+    f(t_0+2\Delta t) = f(t_0+\Delta t) + \Delta t f'(t_0 + \Delta t) \\
+    ...
+    \)
+</div>
+
+This approximation technique is called 
+<a href="http://en.wikipedia.org/wiki/Numerical_ordinary_differential_equations#The_Euler_method">
+The Euler Method</a>, or sometimes Forward Euler, because the derivative
+in the original expression was calculated from a point forward in time.
+We can apply it to our spring problem by applying
+it twice, since we have a second derivative. First, we calculate our acceleration
+from our current position, which we can do from the simple spring equation
+of motion we broke down above. Then, we update our position based on our
+current velocity, and finally we update our velocity based on the acceleration
+we calculated.
+
+<div class="LaTexEquation">
+    \(
+    a(t) = \frac{-k}{m} x(t) \\
+    x(t+\Delta t) \approx x(t) + \Delta t\ v(t) \\
+    v(t+\Delta t) \approx v(t) + \Delta t\ a(t) 
+    \)
+</div>
+That's all we need to calculate new positions, so let's give it a try in 
+our code.
+
+<h2>Adding a Time Step to our Sim Code</h2>
+Let's make a few small code additions to support time integration. Below
+the DrawState function, we'll add a new function called TimeStep, which will
+make the calculations above, and will also set the current time, based on 
+a time increment DT. DT is a code-friendly way of writing \(\Delta t\), and 
+is common practice.
+
+<pre><code>
+// Time Step function.
+void TimeStep( float i_dt )
+{
+    // Compute acceleration from current position.
+    float A = ( -Stiffness / BobMass ) * State[StatePositionX];
+
+    // Update position based on current velocity.
+    State[StatePositionX] += i_dt * State[StateVelocityX];
+
+    // Update velocity based on acceleration.
+    State[StateVelocityX] += i_dt * A;
+
+    // Update current time.
+    State[StateCurrentTime] += i_dt;
+}
+</code></pre>
+
+Then, we simply update our draw function to call the TimeStep function right
+as it begins. We assume that each draw refresh is a single frame of time
+integration, which we'll call 1/24 of a second. Here's the new draw function:
+
+<pre><code>
+void draw()
+{
+    // Time Step.
+    TimeStep( 1.0/24.0 );
+
+    // Clear the display to a constant color.
+    background( 0.75 );
+
+    // Translate to the origin.
+    translate( OriginPixelsX, OriginPixelsY );
+
+    // Draw the simulation
+    DrawState();
+}
+</code></pre>
+
+And that's it! Here's the whole thing, now with motion!
+
+<p>
+<script type="application/processing" data-processing-target="pjsSpringSimp2">
+float Stiffness = 1.0;
+float BobMass = 0.5;
+int StateSize = 3;
+float[] InitState = new float[StateSize];
+float[] State = new float[StateSize];
+int StateCurrentTime = 0;
+int StatePositionX = 1;
+int StateVelocityX = 2;
+
+int WindowWidthHeight = 300;
+float WorldSize = 2.0;
+float PixelsPerMeter;
+float OriginPixelsX;
+float OriginPixelsY;
+
+void setup()
+{
+    // Create initial state.
+    InitState[StateCurrentTime] = 0.0;
+    InitState[StatePositionX] = 0.65;
+    InitState[StateVelocityX] = 0.0;
+
+    // Copy initial state to current state.
+    // notice that this does not need to know what the meaning of the
+    // state elements is, and would work regardless of the state's size.
+    for ( int i = 0; i < StateSize; ++i )
+    {
+        State[i] = InitState[i];
+    }
+
+    // Set up normalized colors.
+    colorMode( RGB, 1.0 );
+    
+    // Set up the stroke color and width.
+    stroke( 0.0 );
+    //strokeWeight( 0.01 );
+    
+    // Create the window size, set up the transformation variables.
+    size( WindowWidthHeight, WindowWidthHeight );
+    PixelsPerMeter = (( float )WindowWidthHeight ) / WorldSize;
+    OriginPixelsX = 0.5 * ( float )WindowWidthHeight;
+    OriginPixelsY = 0.5 * ( float )WindowWidthHeight;
+}
+
+// Draw our State, with the unfortunate units conversion.
+void DrawState()
+{
+    // Compute end of arm.
+    float SpringEndX = PixelsPerMeter * State[StatePositionX];
+
+    // Draw the spring.
+    strokeWeight( 1.0 );
+    line( 0.0, 0.0, SpringEndX, 0.0 );
+          
+    // Draw the spring pivot
+    fill( 0.0 );
+    ellipse( 0.0, 0.0, 
+             PixelsPerMeter * 0.03, 
+             PixelsPerMeter * 0.03 );
+    
+    // Draw the spring bob
+    fill( 1.0, 0.0, 0.0 );
+    ellipse( SpringEndX, 0.0, 
+             PixelsPerMeter * 0.1, 
+             PixelsPerMeter * 0.1 );
+}
+
+// Time Step function.
+void TimeStep( float i_dt )
+{
+    // Compute acceleration from current position.
+    float A = ( -Stiffness / BobMass ) * State[StatePositionX];
+
+    // Update position based on current velocity.
+    State[StatePositionX] += i_dt * State[StateVelocityX];
+
+    // Update velocity based on acceleration.
+    State[StateVelocityX] += i_dt * A;
+
+    // Update current time.
+    State[StateCurrentTime] += i_dt;
+}
+
+// Processing Draw function, called every time the screen refreshes.
+void draw()
+{
+    // Time Step.
+    TimeStep( 1.0/24.0 );
+
+    // Clear the display to a constant color.
+    background( 0.75 );
+
+    // Translate to the origin.
+    translate( OriginPixelsX, OriginPixelsY );
+
+    // Draw the simulation
+    DrawState();
+}
+</script>
+<canvas id="pjsSpringSimp2"> </canvas>
+<p>
+Hey, we've got oscillating motion! But wait.... what the hell? Why is the ball
+shooting off the screen? Why is it getting faster and faster? Our sim is 
+unstable! We're going to need a better approximation, because as it turns out,
+Forward Euler approximations are <i>unconditionally unstable</i> - meaning they
+will ALWAYS blow up sooner or later, unless the results are manipulated.
+<p>
+That's the subject of our next class!
+
+</body>
