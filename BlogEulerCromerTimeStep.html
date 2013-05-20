@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Encino Sim Class : The Euler-Cromer Time Step</title>
+
+  <style type="text/css" title="currentStyle">
+    @import "css/SimClass.css";
+  </style>
+
+<script src='http://processingjs.org/js/processing.min.js' type='text/javascript'/></script>
+<!Install the MathJax stuff so we can show LaTeX>
+<script type="text/javascript"
+  src="https://c328740.ssl.cf1.rackcdn.com/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML">
+</script>
+</head>
+<body>
+<h2>Adding Debug Tools to our Spring Simulation</h2>
+The Forward Euler Time Step that we added to the Spring Simulation in the
+previous class produced an oscillatory motion, but did so in a way that 
+produced an unstable result, with the mass oscillating wildly off screen
+in a short period of time.
+<p>
+The instability shown by our simple spring simulation is a constant problem
+for most simulations. It's easy to see the problem in this simple example
+(which is why we're using it!), but the problem affects large-scale fluid
+and cloth sims, rigid body sims, and so on.  Strangely, despite the general
+knowledge that Forward Euler is not a good time integration tool, it is still
+used in many commercial tools, including Maya and Houdini.
+<p>
+In order to analyze our improvements, we first need a measuring stick. To quote
+my good friend Adam Shand, "You can't improve what you can't measure.". We
+chose the simple spring because it did have an exact answer. Therefore, we'll
+add some code to our drawing routine that draws the right answer just above
+the simulated spring. Here's that code - note that this uses the expression
+for the explicit position of the spring that we established in the previous
+class. We'll also add some text to the top of the drawn image to remind
+us which time integration we're using.
+<pre><code>
+void DrawState()
+{
+    // Compute end of arm.
+    float SpringEndX = PixelsPerMeter * State[StatePositionX];
+
+    // Compute the CORRECT position.
+    float sqrtKoverM = sqrt( Stiffness / BobMass );
+    float x0 = InitState[StatePositionX];
+    float v0 = InitState[StateVelocityX];
+    float t = State[StateCurrentTime];
+    float CorrectPositionX = ( x0 * cos( sqrtKoverM * t ) ) +
+        ( ( v0 / sqrtKoverM ) * sin( sqrtKoverM + t ) );
+    
+    // Compute draw pos for "correct"
+    float CorrectEndX = PixelsPerMeter * State[CorrectPositionX];
+
+    // Draw the spring.
+    strokeWeight( 1.0 );
+    line( 0.0, 0.0, SpringEndX, 0.0 );
+          
+    // Draw the spring pivot
+    fill( 0.0 );
+    ellipse( 0.0, 0.0, 
+             PixelsPerMeter * 0.03, 
+             PixelsPerMeter * 0.03 );
+    
+    // Draw the spring bob
+    fill( 1.0, 0.0, 0.0 );
+    ellipse( SpringEndX, 0.0, 
+             PixelsPerMeter * 0.1, 
+             PixelsPerMeter * 0.1 );
+
+    // Draw the correct bob in blue
+    fill( 0.0, 0.0, 1.0 );
+    ellips( CorrectEndX, -PixelsPerMeter * 0.25,
+            PixelsPerMeter * 0.1,
+            PixelsPerMeter * 0.1 );
+}
+</code></pre>
+
+<p>
+
+And here that is:
+
+<p>
+<script type="application/processing" data-processing-target="pjsSpringSimp3">
+float Stiffness = 5.0;
+float BobMass = 0.5;
+int StateSize = 3;
+float[] InitState = new float[StateSize];
+float[] State = new float[StateSize];
+int StateCurrentTime = 0;
+int StatePositionX = 1;
+int StateVelocityX = 2;
+
+int WindowWidthHeight = 300;
+float WorldSize = 2.0;
+float PixelsPerMeter;
+float OriginPixelsX;
+float OriginPixelsY;
+
+void setup()
+{
+    // Create initial state.
+    InitState[StateCurrentTime] = 0.0;
+    InitState[StatePositionX] = 0.65;
+    InitState[StateVelocityX] = 0.0;
+
+    // Copy initial state to current state.
+    // notice that this does not need to know what the meaning of the
+    // state elements is, and would work regardless of the state's size.
+    for ( int i = 0; i < StateSize; ++i )
+    {
+        State[i] = InitState[i];
+    }
+
+    // Set up normalized colors.
+    colorMode( RGB, 1.0 );
+    
+    // Set up the stroke color and width.
+    stroke( 0.0 );
+    //strokeWeight( 0.01 );
+    
+    // Create the window size, set up the transformation variables.
+    size( WindowWidthHeight, WindowWidthHeight );
+    PixelsPerMeter = (( float )WindowWidthHeight ) / WorldSize;
+    OriginPixelsX = 0.5 * ( float )WindowWidthHeight;
+    OriginPixelsY = 0.5 * ( float )WindowWidthHeight;
+
+    textSize( 24 );
+}
+
+// Draw our State, with the unfortunate units conversion.
+void DrawState()
+{
+    // Compute end of arm.
+    float SpringEndX = PixelsPerMeter * State[StatePositionX];
+
+    // Compute the CORRECT position.
+    float sqrtKoverM = sqrt( Stiffness / BobMass );
+    float x0 = InitState[StatePositionX];
+    float v0 = InitState[StateVelocityX];
+    float t = State[StateCurrentTime];
+    float CorrectPositionX = ( x0 * cos( sqrtKoverM * t ) ) +
+        ( ( v0 / sqrtKoverM ) * sin( sqrtKoverM + t ) );
+    
+    // Compute draw pos for "correct"
+    float CorrectEndX = PixelsPerMeter * CorrectPositionX;
+
+    // Draw the spring.
+    strokeWeight( 1.0 );
+    line( 0.0, 0.0, SpringEndX, 0.0 );
+          
+    // Draw the spring pivot
+    fill( 0.0 );
+    ellipse( 0.0, 0.0, 
+             PixelsPerMeter * 0.03, 
+             PixelsPerMeter * 0.03 );
+    
+    // Draw the spring bob
+    fill( 1.0, 0.0, 0.0 );
+    ellipse( SpringEndX, 0.0, 
+             PixelsPerMeter * 0.1, 
+             PixelsPerMeter * 0.1 );
+
+    // Draw the correct bob in blue
+    fill( 0.0, 0.0, 1.0 );
+    ellipse( CorrectEndX, -PixelsPerMeter * 0.25,
+             PixelsPerMeter * 0.1,
+             PixelsPerMeter * 0.1 );
+}
+
+// Time Step function.
+void TimeStep( float i_dt )
+{
+    // Compute acceleration from current position.
+    float A = ( -Stiffness / BobMass ) * State[StatePositionX];
+
+    // Update position based on current velocity.
+    State[StatePositionX] += i_dt * State[StateVelocityX];
+
+    // Update velocity based on acceleration.
+    State[StateVelocityX] += i_dt * A;
+
+    // Update current time.
+    State[StateCurrentTime] += i_dt;
+}
+
+// Processing Draw function, called every time the screen refreshes.
+void draw()
+{
+    // Time Step.
+    TimeStep( 1.0/24.0 );
+
+    // Clear the display to a constant color.
+    background( 0.75 );
+
+    // Label.
+    fill( 1.0 );
+    text( "Forward Euler", 10, 30 );
+
+    pushMatrix();
+
+    // Translate to the origin.
+    translate( OriginPixelsX, OriginPixelsY );
+
+    // Draw the simulation
+    DrawState();
+}
+
+// Reset function. If the key 'r' is released in the display, 
+// copy the initial state to the state.
+void keyReleased()
+{
+    if ( key == 114 )
+    {
+        for ( int i = 0; i < StateSize; ++i )
+        {
+            State[i] = InitState[i];
+        }
+    }  
+}
+
+</script>
+<canvas id="pjsSpringSimp3"> </canvas>
+<p>
+I also added a "reset" capability to the simple spring code by using
+Processing's keyRelease function. In response to the key 'r' being released
+in the view (which has ascii-code 114), we copy the initial state onto the
+state. (See how handy state vectors are turning out to be!)  Because we 
+included the Current Time in our state vector, this is easy:
+
+<pre><code>
+// Reset function. If the key 'r' is released in the display, 
+// copy the initial state to the state.
+void keyReleased()
+{
+    if ( key == 114 )
+    {
+        for ( int i = 0; i < StateSize; ++i )
+        {
+            State[i] = InitState[i];
+        }
+    }  
+}
+</code></pre>
+
+<h2>The Euler-Cromer Time Step</h2>
+When we created the forward finite difference approximation to our 
+<b>ODE</b> equation of motion in the previous class, we had to create two
+forward difference equations - one for velocity from acceleration, and then
+one for position from velocity. As you remember, we computed acceleration
+from the current position, then updated position based on the current
+velocity, and then finally updated velocity based on the acceleration.
+What if we updated velocity first, and then updated the position from the
+current velocity?  That would look like this:
+
+<div class="LaTexEquation">
+    \(
+    a( t ) = f( t, x( t ) ) = \frac{-k}{m} x( t ) \\
+    v( t + \Delta t ) \approx v( t ) + \Delta t a( t ) \\
+    x( t + \Delta t ) \approx x( t ) + \Delta t v( t + \Delta t )
+    \)
+</div>
+
+This seems almost trivially different from our Forward-Euler time step. This 
+method is called many different things: 
+<a href="http://en.wikipedia.org/wiki/Semi-implicit_Euler_method">
+Semi-Implicit Euler Method</a>, Symplectic Euler, Semi-Explicit Euler, 
+Euler-Cromer, and Newton–Størmer–Verlet (NSV) (at least). One of the things
+I've found in years of writing simulations is that just learning the names
+of all these different techniques, and learning that the different names
+often mean exactly the same thing, is a huge part of simplifying the giant
+mess of understanding.
+<p>
+The code changes to implement Euler Cromer are trivial, we just reorder the
+time step - literally just swap the velocity update line and the position
+update line:
+<p>
+<pre><code>
+// Euler-Cromer Time Step function.
+void TimeStep( float i_dt )
+{
+    // Compute acceleration from current position.
+    float A = ( -Stiffness / BobMass ) * State[StatePositionX];
+
+    // Update velocity based on acceleration.
+    State[StateVelocityX] += i_dt * A;
+
+    // Update position based on current velocity.
+    State[StatePositionX] += i_dt * State[StateVelocityX];
+
+    // Update current time.
+    State[StateCurrentTime] += i_dt;
+}
+</code></pre>
+<p>
+And let's see how this ONE LINE (okay, TWO-LINE) change affects the sim:
+
+<p>
+<script type="application/processing" data-processing-target="pjsSpringSimp4">
+float Stiffness = 5.0;
+float BobMass = 0.5;
+int StateSize = 3;
+float[] InitState = new float[StateSize];
+float[] State = new float[StateSize];
+int StateCurrentTime = 0;
+int StatePositionX = 1;
+int StateVelocityX = 2;
+
+int WindowWidthHeight = 300;
+float WorldSize = 2.0;
+float PixelsPerMeter;
+float OriginPixelsX;
+float OriginPixelsY;
+
+void setup()
+{
+    // Create initial state.
+    InitState[StateCurrentTime] = 0.0;
+    InitState[StatePositionX] = 0.65;
+    InitState[StateVelocityX] = 0.0;
+
+    // Copy initial state to current state.
+    // notice that this does not need to know what the meaning of the
+    // state elements is, and would work regardless of the state's size.
+    for ( int i = 0; i < StateSize; ++i )
+    {
+        State[i] = InitState[i];
+    }
+
+    // Set up normalized colors.
+    colorMode( RGB, 1.0 );
+    
+    // Set up the stroke color and width.
+    stroke( 0.0 );
+    //strokeWeight( 0.01 );
+    
+    // Create the window size, set up the transformation variables.
+    size( WindowWidthHeight, WindowWidthHeight );
+    PixelsPerMeter = (( float )WindowWidthHeight ) / WorldSize;
+    OriginPixelsX = 0.5 * ( float )WindowWidthHeight;
+    OriginPixelsY = 0.5 * ( float )WindowWidthHeight;
+
+    textSize( 24 );
+}
+
+// Draw our State, with the unfortunate units conversion.
+void DrawState()
+{
+    // Compute end of arm.
+    float SpringEndX = PixelsPerMeter * State[StatePositionX];
+
+    // Compute the CORRECT position.
+    float sqrtKoverM = sqrt( Stiffness / BobMass );
+    float x0 = InitState[StatePositionX];
+    float v0 = InitState[StateVelocityX];
+    float t = State[StateCurrentTime];
+    float CorrectPositionX = ( x0 * cos( sqrtKoverM * t ) ) +
+        ( ( v0 / sqrtKoverM ) * sin( sqrtKoverM + t ) );
+    
+    // Compute draw pos for "correct"
+    float CorrectEndX = PixelsPerMeter * CorrectPositionX;
+
+    // Draw the spring.
+    strokeWeight( 1.0 );
+    line( 0.0, 0.0, SpringEndX, 0.0 );
+          
+    // Draw the spring pivot
+    fill( 0.0 );
+    ellipse( 0.0, 0.0, 
+             PixelsPerMeter * 0.03, 
+             PixelsPerMeter * 0.03 );
+    
+    // Draw the spring bob
+    fill( 1.0, 0.0, 0.0 );
+    ellipse( SpringEndX, 0.0, 
+             PixelsPerMeter * 0.1, 
+             PixelsPerMeter * 0.1 );
+
+    // Draw the correct bob in blue
+    fill( 0.0, 0.0, 1.0 );
+    ellipse( CorrectEndX, -PixelsPerMeter * 0.25,
+             PixelsPerMeter * 0.1,
+             PixelsPerMeter * 0.1 );
+}
+
+// Euler-Cromer Time Step function.
+void TimeStep( float i_dt )
+{
+    // Compute acceleration from current position.
+    float A = ( -Stiffness / BobMass ) * State[StatePositionX];
+    
+    // Update velocity based on acceleration.
+    State[StateVelocityX] += i_dt * A;
+
+    // Update position based on current velocity.
+    State[StatePositionX] += i_dt * State[StateVelocityX];
+
+    // Update current time.
+    State[StateCurrentTime] += i_dt;
+}
+
+// Processing Draw function, called every time the screen refreshes.
+void draw()
+{
+    // Time Step.
+    TimeStep( 1.0/24.0 );
+
+    // Clear the display to a constant color.
+    background( 0.75 );
+
+    // Label.
+    fill( 1.0 );
+    text( "Euler-Cromer", 10, 30 );
+
+    pushMatrix();
+
+    // Translate to the origin.
+    translate( OriginPixelsX, OriginPixelsY );
+
+    // Draw the simulation
+    DrawState();
+}
+
+// Reset function. If the key 'r' is released in the display, 
+// copy the initial state to the state.
+void keyReleased()
+{
+    if ( key == 114 )
+    {
+        for ( int i = 0; i < StateSize; ++i )
+        {
+            State[i] = InitState[i];
+        }
+    }  
+}
+
+</script>
+<canvas id="pjsSpringSimp4"> </canvas>
+<p>
+This is not bad! Our simulation seems to have become stable, which is good
+news. However, if we watch the simulation for a while, it becomes clear that
+the simulated positions diverge more and more over time from the correct
+positions.  In order to fix this, we're going to need to explore even
+higher-order time integration techniques, which is the topic of the next
+class!
+</body>

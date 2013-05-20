@@ -40,6 +40,8 @@ void setup()
     PixelsPerMeter = (( float )WindowWidthHeight ) / WorldSize;
     OriginPixelsX = 0.5 * ( float )WindowWidthHeight;
     OriginPixelsY = 0.5 * ( float )WindowWidthHeight;
+
+    textSize( 24 );
 }
 
 // Draw our State, with the unfortunate units conversion.
@@ -47,6 +49,17 @@ void DrawState()
 {
     // Compute end of arm.
     float SpringEndX = PixelsPerMeter * State[StatePositionX];
+
+    // Compute the CORRECT position.
+    float sqrtKoverM = sqrt( Stiffness / BobMass );
+    float x0 = InitState[StatePositionX];
+    float v0 = InitState[StateVelocityX];
+    float t = State[StateCurrentTime];
+    float CorrectPositionX = ( x0 * cos( sqrtKoverM * t ) ) +
+        ( ( v0 / sqrtKoverM ) * sin( sqrtKoverM + t ) );
+    
+    // Compute draw pos for "correct"
+    float CorrectEndX = PixelsPerMeter * CorrectPositionX;
 
     // Draw the spring.
     strokeWeight( 1.0 );
@@ -63,19 +76,25 @@ void DrawState()
     ellipse( SpringEndX, 0.0, 
              PixelsPerMeter * 0.1, 
              PixelsPerMeter * 0.1 );
+
+    // Draw the correct bob in blue
+    fill( 0.0, 0.0, 1.0 );
+    ellipse( CorrectEndX, -PixelsPerMeter * 0.25,
+             PixelsPerMeter * 0.1,
+             PixelsPerMeter * 0.1 );
 }
 
-// Time Step function.
+// Euler-Cromer Time Step function.
 void TimeStep( float i_dt )
 {
     // Compute acceleration from current position.
     float A = ( -Stiffness / BobMass ) * State[StatePositionX];
+    
+    // Update velocity based on acceleration.
+    State[StateVelocityX] += i_dt * A;
 
     // Update position based on current velocity.
     State[StatePositionX] += i_dt * State[StateVelocityX];
-
-    // Update velocity based on acceleration.
-    State[StateVelocityX] += i_dt * A;
 
     // Update current time.
     State[StateCurrentTime] += i_dt;
@@ -90,9 +109,28 @@ void draw()
     // Clear the display to a constant color.
     background( 0.75 );
 
+    // Label.
+    fill( 1.0 );
+    text( "Euler-Cromer", 10, 30 );
+
+    pushMatrix();
+
     // Translate to the origin.
     translate( OriginPixelsX, OriginPixelsY );
 
     // Draw the simulation
     DrawState();
+}
+
+// Reset function. If the key 'r' is released in the display, 
+// copy the initial state to the state.
+void keyReleased()
+{
+    if ( key == 114 )
+    {
+        for ( int i = 0; i < StateSize; ++i )
+        {
+            State[i] = InitState[i];
+        }
+    }  
 }
