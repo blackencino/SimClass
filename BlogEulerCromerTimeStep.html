@@ -14,6 +14,19 @@
 </script>
 </head>
 <body>
+<h2>Forward Euler Problems</h2>
+In the previous class, we observed that a Forward Euler time step quickly
+produced an unusable solution to our simple spring system. This illustration
+from the <a href="http://en.wikipedia.org/wiki/Euler_method">
+Wikipedia entry on Forward Euler</a> illustrates how the method works,
+and also why its solutions drift away from the correct result.
+<img src="http://upload.wikimedia.org/wikipedia/commons/thumb/a/ae/Euler_method.png/613px-Euler_method.png">
+<p>
+In this illustration, you can see that at each point, the slope of the function
+is used to construct a line segment that estimates the position of the next point. 
+The error in each estimate is accumulated with each subsequent estimate, and the solution 
+veers off course.  In order to study these systems better, we first need some debug tools.
+
 <h2>Adding Debug Tools to our Spring Simulation</h2>
 The Forward Euler Time Step that we added to the Spring Simulation in the
 previous class produced an oscillatory motion, but did so in a way that 

@@ -15,7 +15,374 @@
 </head>
 <body>
 <h2>The Wave Equation</h2>
+In our
+<a href="http://encinographic.blogspot.com/2013/05/simulation-class-runge-kutta-methods.html">
+previous class</a>, we improved our time integration to use the popular
+fourth-order Runge-Kutta method, and now our simple spring system is looking
+pretty good. It would be great if we could just use RK4 for any simulation 
+problem we might encounter, and have it just work. Let's explore a system
+that's a little bit more complicated.
+<p>
+The 
+<a href="https://en.wikipedia.org/wiki/Wave_equation">1D Wave Equation</a> 
+describes the motion of waves in a height field, and can
+be written simply as:
+<div class="LaTexEquation">
+    \(
+    \frac{\partial^2 h}{\partial t^2} = c^2 \frac{\partial^2 h}{\partial x^2}
+    \)
+</div>
+<p>
+Just like in our simple spring example, we have an equation of motion in which
+the acceleration of position (height, in this case) is expressed as a function
+of the current value of position (again, height). However, we've added a 
+complication! The function of position itself involves a second derivative of
+height, this time with respect to space, rather than time. The constant
+\(c^2\) represents the square of the wave propagation speed, and is a parameter
+to the system.  So now we've graduated from our previous simple Ordinary
+Differential Equations <b>ODE</b> to the much more exciting Partial Differential
+Equations <b>PDE</b>.
+<p>
+The Wave Equation, in 1D, is extremely similar at its core to the simple spring
+equation, and indeed, if you explore the wikipedia article, you'll see that
+it is actually derived by imagining a series of masses, evenly spaced,
+attached to each other via springs, as seen in this illustration:
+<p>
+<img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Array_of_masses.svg/500px-Array_of_masses.svg.png">
+<p>
+<h2>State Definition for Wave Equation</h2>
+We're going to try to use our RK4 implementation from the spring example 
+directly, so we'll need to create space in the state vector for the temporary
+values created. RK4 sets its final estimate to a weighted average of the
+four estimates it creates along the way, and each estimate is created from
+the previous estimate.  Therefore, rather than storing all four estimates
+separately, we can accumulate each estimate directly into our final sum. 
+Here's what our state will look like:
+<pre><code>
+int StateSize = 7;
+float[][] State = new float[StateSize][ArraySize];
+int StateHeight = 0;
+int StateVel = 1;
+int StateHeightPrev = 2;
+int StateVelPrev = 3;
+int StateVelStar = 4;
+int StateAccelStar = 5;
+int StateHeightTmp = 6;
+</code></pre>
 
+<h2>Initial State</h2>
+The initial state of the wave equation example is a bit more complex than
+the pendulum or the spring. For this example, we're going to use several
+octaves of perlin noise to create a wave-like distribution of crests. Because
+our initial state is complex and large, we don't want to keep a copy of it
+around. If we need to reset, we'll simply call the SetInitialState function
+that we create. Here's that function, which is entirely subject to artistic
+interpretation:
+<p>
+<pre><code>
+void SetInitialState()
+{
+    noiseSeed( 0 );
+    for ( int i = 0; i < ArraySize; ++i )
+    {
+        float worldX = 2341.17 + DX * ( float )i;
+        State[StateHeight][i] = 0.5 * anoise( worldX * 0.0625 ) +
+                         0.4 * anoise( worldX * 0.125 ) +
+                         0.3 * anoise( worldX * 0.25 ) +
+                         0.2 * anoise( worldX * 0.5 );
+        State[StateVel][i] = 0.0;
+    }
+    EnforceBoundaryConditions( StateHeight );
+    EnforceBoundaryConditions( StateVel );
+    StateCurrentTime = 0.0;
+}
+</code></pre>
+<p>
+
+<h2>Boundary Conditions</h2>
+In order to compute the second derivative of height, spatially, we need to
+reference values at adjacent points to the left and right. When we reach the
+sides of the simulation, though, we have a problem - what value do we use
+when we're looking off the side of the simulation? For these areas, the
+simulation needs to have an answer without actually storing a state.  The
+areas of the simulation where we already know the answer, or some aspect
+of the answer, are called Boundary Conditions. The area of the simulation
+where boundary conditions are applied is called, not surprisingly, the boundary.
+The boundary in our simulation is the edges of the wave to the left and right,
+but if we were to have collision objects, for example, the places where the
+simulation met the collision objects would be considered a boundary also.
+<p>
+There are many different types of boundary conditions, which place varyingly
+subtle constraints on the values at boundary points. In this simple wave
+equation simulation, we're going to assert that the values at the boundary are
+exactly equal to the simulated values just adjacent to the boundary. In other
+words, we are asserting that the derivative of any value across the boundary
+is zero. This explicit constraint on a derivative of a value is called a 
+<a href="http://en.wikipedia.org/wiki/Neumann_boundary_condition">
+Neumann Boundary Condition</a>. We implement it in code very simply, by just
+copying the values to the edges:
+<p>
+<pre><code>
+void EnforceBoundaryConditions( int io_a )
+{
+    State[io_a][0] = State[io_a][1];
+    State[io_a][ArraySize-1] = State[io_a][ArraySize-2];
+}
+</code></pre>
+<p>
+Note that in this implementation, we allow ourselves to affect any part of
+the state vector. The flexibility of our abstract state field naming again 
+shows its power!
+<p>
+<h2>Integration Tools</h2>
+In the simple spring example, we were able to simply create temporary floats
+to store temporary values, and we were able to use arithmetic operators to
+compute the integrated fields. Because our state values are now arrays of
+data, we need special functions for evaluating equations over the whole
+array at once. These are called "vectorized" functions. Let's break them
+down one by one. First, a utility function for copying an array from one
+part of the state vector to another:
+<p>
+<pre><code>
+void CopyArray( int i_src, int o_dst )
+{
+    for ( int i = 0; i < ArraySize; ++i )
+    {
+        State[o_dst][i] = State[i_src][i];
+    }
+}
+</code></pre>
+<p>
+As we move from time step to time step, we need to swap out our "current"
+height and velocity values into a "previous" array.  Because of the way we've
+indexed our state vector with labels, we don't have to actually copy the
+values over. You could imagine that in a very large fluid simulation, this
+copying of millions of points of data would be very expensive. Instead, we
+just swap the labels:
+<p>
+<pre><code>
+void SwapHeight()
+{
+    int tmp = StateHeight;
+    StateHeight = StateHeightPrev;
+    StateHeightPrev = tmp;
+}
+
+void SwapVel()
+{
+    int tmp = StateVel;
+    StateVel = StateVelPrev;
+    StateVelPrev = tmp;
+}
+
+void SwapState()
+{
+    SwapHeight();
+    SwapVel();
+}
+</code></pre>
+<p>
+The RK4 technique involves, for every estimate other than the first, estimating
+a temporary value for height using the vStar estimate from the previous
+estimation iteration, and the height of the previous time step. The time
+interval over which these temporary height estimates are made varies from
+iteration to iteration. This function is simple! In our spring example, it
+looked like this:
+<p>
+<pre><code>
+float xTmp = State[StatePositionX] + ( i_dt * vStar1 );
+</code></pre>
+<p>
+In our wave state, this operation on a single float gets expanded to work
+on the whole state array like so:
+<p>
+<pre><code>
+// Estimate temp height
+void EstimateTempHeight( float i_dt )
+{
+    for ( int i = 0; i < ArraySize; ++i )
+    {
+        State[StateHeightTmp][i] = State[StateHeightPrev][i] + 
+                ( i_dt * State[StateVelStar][i] );
+    }
+    EnforceBoundaryConditions( StateHeightTmp );
+}
+</code></pre>
+<p>
+Following along, in the simple spring example we then had to estimate a new
+velocity, vStar based on the previous iteration's aStar, and the previous
+time step's velocity. In the spring example, that looks like this:
+<p>
+<pre><code>
+float vStar2 = State[StateVelocityX] + ( i_dt * aStar1 );
+</code></pre>
+<p>
+In our wave state, this operation is expanded as follows:
+<p>
+<pre><code>
+// Estimate vel star
+void EstimateVelStar( float i_dt )
+{
+    for ( int i = 0; i < ArraySize; ++i )
+    {
+        State[StateVelStar][i] = State[StateVelPrev][i] + 
+                ( i_dt * State[StateAccelStar][i] );
+    }
+    EnforceBoundaryConditions( StateVelStar );
+}
+</code></pre>
+<p>
+<h3>Discretizing the Spatial Derivative of Height</h3>
+Finally, we need to port the computation of acceleration from an estimated
+position. In the spring example, this was as simple as could be (on purpose):
+<p>
+<pre><code>
+// Acceleration from Position.
+float A_from_X( float i_x )
+{
+    return -( Stiffness / BobMass ) * i_x;
+}
+</code></pre>
+Now that we have a spatial derivative in our setup, though, we need to calculate
+our acceleration based not only on the position at each point in the grid,
+but also the neighboring points in the grid. In order to do that, we need
+to discretize the second spatial spatial derivative, which we can do using
+finite differences, as we learned several classes ago. The finite difference
+approximation to the second derivative, in one dimension, looks like this:
+<p>
+<div class="LaTexEquation">
+    \(
+    \frac{\partial^2 h}{\partial x^2} \approx 
+    \frac{ ( \frac{ ( h_{i+1} - h_i ) }{\Delta x} - 
+             \frac{ ( h_i - h_{i-1} ) }{\Delta x} ) }{\Delta x}
+    \)
+</div>
+<p>
+Which simplifies to:
+<div class="LaTexEquation">
+    \(
+    \frac{\partial^2 h}{\partial x^2} \approx 
+    \frac{ ( h_{i+1} + h_{i-1} - 2 h_i ) }{\Delta x^2}
+    \)
+</div>
+<p>
+We can implement this in code as follows:
+<p>
+<pre><code>
+void A_from_H( int i_h )
+{
+    for ( int i = 1; i < ArraySize-1; ++i )
+    {
+        float hLeft = State[i_h][i-1];
+        float hCen = State[i_h][i];
+        float hRight = State[i_h][i+1];
+
+        float d2h_dx2 = ( hRight + hLeft - ( 2.0*hCen ) ) / sq( DX );
+
+        State[StateAccelStar][i] = sq( WaveSpeed ) * d2h_dx2;
+    }
+    
+    EnforceBoundaryConditions( StateAccelStar );
+}
+</code></pre>
+<p>
+Note that we only iterate across the center values in the arrays - we skip
+the very first and the very last points, because they don't have values 
+adjacent to themselves in one direction. Here is where the boundary conditions
+help to fill in the gaps, and you can see that they're applied at the
+last step.
+<h2> The Time Step </h2>
+Okay, so armed with all the pieces above, we can construct our TimeStep. It
+should look just like the spring solver's RK4 time-step, with the appropriate
+adjustments for the array data. Here was the old time step:
+<p>
+<pre><code>
+// Time Step function.
+void TimeStep( float i_dt )
+{
+    float vStar1 = State[StateVelocityX];
+    float aStar1 = A_from_X( State[StatePositionX] );
+
+    float vStar2 = State[StateVelocityX] + ( ( i_dt / 2.0 ) * aStar1 );
+    float xTmp2 = State[StatePositionX] + ( ( i_dt / 2.0 ) * vStar1 );
+    float aStar2 = A_from_X( xTmp2 );
+
+    float vStar3 = State[StateVelocityX] + ( ( i_dt / 2.0 ) * aStar2 );
+    float xTmp3 = State[StatePositionX] + ( ( i_dt / 2.0 ) * vStar2 );
+    float aStar3 = A_from_X( xTmp3 );
+
+    float vStar4 = State[StateVelocityX] + ( i_dt * aStar3 );
+    float xTmp4 = State[StatePositionX] + ( i_dt * vStar3 );
+    float aStar4 = A_from_X( xTmp4 );
+
+    State[StatePositionX] += ( i_dt / 6.0 ) * 
+        ( vStar1 + (2.0*vStar2) + (2.0*vStar3) + vStar4 );
+    State[StateVelocityX] += ( i_dt / 6.0 ) * 
+        ( aStar1 + (2.0*aStar2) + (2.0*aStar3) + aStar4 );
+
+    // Update current time.
+    State[StateCurrentTime] += i_dt;
+}
+</code></pre>
+<p>
+And here's the new one, for the wave system:
+<p>
+<pre><code>
+// Time Step function.
+void TimeStep( float i_dt )
+{
+    // Swap state
+    SwapState();
+    
+    // Initialize estimate. This just amounts to copying
+    // The previous values into the current values.
+    CopyArray( StateHeightPrev, StateHeight );
+    CopyArray( StateVelPrev, StateVel );
+    
+    // Vstar1, Astar1
+    CopyArray( StateVel, StateVelStar );
+    A_from_H( StateHeight );
+    // Accumulate
+    AccumulateEstimate( i_dt / 6.0 );
+    
+    // Height Temp 2
+    EstimateTempHeight( i_dt / 2.0 );
+    // Vstar2, Astar2
+    EstimateVelStar( i_dt / 2.0 );
+    A_from_H( StateHeightTmp );
+    // Accumulate
+    AccumulateEstimate( i_dt / 3.0 );
+    
+    // Height Temp 3
+    EstimateTempHeight( i_dt / 2.0 );
+    // Vstar3, Astar3
+    EstimateVelStar( i_dt / 2.0 );
+    A_from_H( StateHeightTmp );
+    // Accumulate
+    AccumulateEstimate( i_dt / 3.0 );
+    
+     // Height Temp 4
+    EstimateTempHeight( i_dt );
+    // Vstar3, Astar3
+    EstimateVelStar( i_dt );
+    A_from_H( StateHeightTmp );
+    // Accumulate
+    AccumulateEstimate( i_dt / 6.0 );
+    
+    // Final boundary conditions on height and vel
+    EnforceBoundaryConditions( StateHeight );
+    EnforceBoundaryConditions( StateVel );
+
+    // Update current time.
+    StateCurrentTime += i_dt;
+}
+</code></pre>
+<p>
+It's a little bit longer in code length, but importantly - it doesn't
+actually contain more operations! If you compare this to the previous
+example, you'll see that it's basically the same!
+Let's see what that looks like running in processing with it all added
+together:
 <p>
 <script type="application/processing" data-processing-target="pjsWaveEqnRK4">
 float WaveSpeed = 0.5;
@@ -54,7 +421,13 @@ float anoise( float x )
    return ( -2.0 * abs( snoise( x )) ) + 1.0;
 }
 
-void setup()
+void EnforceBoundaryConditions( int io_a )
+{
+    State[io_a][0] = State[io_a][1];
+    State[io_a][ArraySize-1] = State[io_a][ArraySize-2];
+}
+
+void SetInitialState()
 {
     noiseSeed( 0 );
     for ( int i = 0; i < ArraySize; ++i )
@@ -64,7 +437,320 @@ void setup()
                          0.4 * anoise( worldX * 0.125 ) +
                          0.3 * anoise( worldX * 0.25 ) +
                          0.2 * anoise( worldX * 0.5 );
+        State[StateVel][i] = 0.0;
     }
+    EnforceBoundaryConditions( StateHeight );
+    EnforceBoundaryConditions( StateVel );
+    StateCurrentTime = 0.0;
+}
+
+void setup()
+{
+    SetInitialState();
+    
+    size( WindowWidth, WindowHeight );
+    
+    colorMode( RGB, 1.0 );
+    strokeWeight( 0.5 );
+    textSize( 24 );
+}
+
+void SwapHeight()
+{
+    int tmp = StateHeight;
+    StateHeight = StateHeightPrev;
+    StateHeightPrev = tmp;
+}
+
+void SwapVel()
+{
+    int tmp = StateVel;
+    StateVel = StateVelPrev;
+    StateVelPrev = tmp;
+}
+
+void SwapState()
+{
+    SwapHeight();
+    SwapVel();
+}
+
+void CopyArray( int i_src, int o_dst )
+{
+    for ( int i = 0; i < ArraySize; ++i )
+    {
+        State[o_dst][i] = State[i_src][i];
+    }
+}
+
+void A_from_H( int i_h )
+{
+    for ( int i = 1; i < ArraySize-1; ++i )
+    {
+        float hLeft = State[i_h][i-1];
+        float hCen = State[i_h][i];
+        float hRight = State[i_h][i+1];
+
+        float d2h_dx2 = ( hRight + hLeft - ( 2.0*hCen ) ) / sq( DX );
+
+        State[StateAccelStar][i] = sq( WaveSpeed ) * d2h_dx2;
+    }
+    
+    EnforceBoundaryConditions( StateAccelStar );
+}
+
+// Estimate temp height
+void EstimateTempHeight( float i_dt )
+{
+    for ( int i = 0; i < ArraySize; ++i )
+    {
+        State[StateHeightTmp][i] = State[StateHeightPrev][i] + 
+                ( i_dt * State[StateVelStar][i] );
+    }
+    EnforceBoundaryConditions( StateHeightTmp );
+}
+
+// Estimate vel star
+void EstimateVelStar( float i_dt )
+{
+    for ( int i = 0; i < ArraySize; ++i )
+    {
+        State[StateVelStar][i] = State[StateVelPrev][i] + 
+                ( i_dt * State[StateAccelStar][i] );
+    }
+    EnforceBoundaryConditions( StateVelStar );
+}
+
+// Accumulate estimate
+void AccumulateEstimate( float i_dt )
+{
+    for ( int i = 0; i < ArraySize; ++i )
+    {
+        State[StateHeight][i] += i_dt * State[StateVelStar][i];
+        State[StateVel][i] += i_dt * State[StateAccelStar][i];
+    }
+}
+
+// Acceleration from height. This uses the spatial second derivative.
+// Note that we're iterating only over the central points, not the edges,
+// which are handled by the boundary condition.
+void A_from_H( int i_h )
+{
+    for ( int i = 1; i < ArraySize-1; ++i )
+    {
+        float hLeft = State[i_h][i-1];
+        float hCen = State[i_h][i];
+        float hRight = State[i_h][i+1];
+
+        float d2h_dx2 = ( hRight + hLeft - ( 2.0*hCen ) ) / sq( DX );
+
+        State[StateAccelStar][i] = sq( WaveSpeed ) * d2h_dx2;
+    }
+    
+    EnforceBoundaryConditions( StateAccelStar );
+}
+
+// Time Step function.
+void TimeStep( float i_dt )
+{
+    // Swap state
+    SwapState();
+    
+    // Initialize estimate. This just amounts to copying
+    // The previous values into the current values.
+    CopyArray( StateHeightPrev, StateHeight );
+    CopyArray( StateVelPrev, StateVel );
+    
+    // Vstar1, Astar1
+    CopyArray( StateVel, StateVelStar );
+    A_from_H( StateHeight );
+    // Accumulate
+    AccumulateEstimate( i_dt / 6.0 );
+    
+    // Height Temp 2
+    EstimateTempHeight( i_dt / 2.0 );
+    // Vstar2, Astar2
+    EstimateVelStar( i_dt / 2.0 );
+    A_from_H( StateHeightTmp );
+    // Accumulate
+    AccumulateEstimate( i_dt / 3.0 );
+    
+    // Height Temp 3
+    EstimateTempHeight( i_dt / 2.0 );
+    // Vstar3, Astar3
+    EstimateVelStar( i_dt / 2.0 );
+    A_from_H( StateHeightTmp );
+    // Accumulate
+    AccumulateEstimate( i_dt / 3.0 );
+    
+     // Height Temp 4
+    EstimateTempHeight( i_dt );
+    // Vstar3, Astar3
+    EstimateVelStar( i_dt );
+    A_from_H( StateHeightTmp );
+    // Accumulate
+    AccumulateEstimate( i_dt / 6.0 );
+    
+    // Final boundary conditions on height and vel
+    EnforceBoundaryConditions( StateHeight );
+    EnforceBoundaryConditions( StateVel );
+
+    // Update current time.
+    StateCurrentTime += i_dt;
+}
+
+void DrawState()
+{
+    float OffsetY = 0.5 * ( float )WindowHeight;
+    for ( int i = 0; i < ArraySize; ++i )
+    {
+        float SimX = DX *  ( float )i;
+        float PixelsX = ( float )( i * PixelsPerCell );
+        float SimY = State[StateHeight][i];
+        float PixelsY = SimY * (( float )PixelsPerCell ) / DX;
+        float PixelsMinY = OffsetY - PixelsY;
+        float PixelsHeight = (( float )WindowHeight) - PixelsMinY;
+
+        fill( 0.0, 0.0, 1.0 );   
+        rect( PixelsX, OffsetY - PixelsY, PixelsPerCell, PixelsHeight );
+    }
+}
+
+void draw()
+{
+    background( 0.9 );
+   
+    TimeStep( 1.0 / 24.0 );
+  
+    DrawState();
+
+    // Label.
+    fill( 1.0 );
+    text( "Wave Equation RK4", 10, 30 );
+}
+
+// Reset function. If the key 'r' is released in the display, 
+// copy the initial state to the state.
+void keyReleased()
+{
+    if ( key == 114 )
+    {
+        SetInitialState();
+    }  
+}
+
+</script>
+<canvas id="pjsWaveEqnRK4"> </canvas>
+<p>
+That's not bad! Perhaps we could make it more interesting, by gathering
+some mouse input. We'll make it so that if you click in the view, it will
+set the height and velocity of the sim at that point to the height of the click,
+and zero, respectively. The input grabbing code looks like this:
+<p>
+<pre><code>
+void GetInput()
+{
+    if ( mousePressed && mouseButton == LEFT )
+    {
+        float mouseCellX = mouseX / ( ( float )PixelsPerCell );
+        float mouseCellY = ( (height/2) - mouseY ) / ( ( float )PixelsPerCell );
+        float simY = mouseCellY * DX;
+        
+        int iX = ( int )floor( mouseCellX + 0.5 );
+        if ( iX > 0 && iX < ArraySize-1 )
+        {
+            State[StateHeight][iX] = simY;
+            State[StateVel][iX] = 0.0;
+        }
+    }
+}
+</code></pre>
+<p>
+And we just add that directly into our main draw loop, right before the 
+time step:
+<p>
+<pre><code>
+void draw()
+{
+    background( 0.9 );
+   
+    GetInput();
+   
+    TimeStep( 1.0 / 24.0 );
+
+    // Label.
+    fill( 1.0 );
+    text( "Wave Equation RK4", 10, 30 );
+  
+    DrawState();
+}
+</code></pre>
+<p>
+And what happens now? Here it is running:
+<p>
+<script type="application/processing" data-processing-target="pjsWaveEqnRK4_WithInput">
+float WaveSpeed = 0.5;
+
+float WorldSize = 10.0;
+int ArraySize = 128;
+float DX = WorldSize / ArraySize;
+
+float LX = WorldSize;
+float LY = WorldSize / 2.0;
+
+int StateSize = 7;
+float[][] State = new float[StateSize][ArraySize];
+int StateHeight = 0;
+int StateVel = 1;
+int StateHeightPrev = 2;
+int StateVelPrev = 3;
+int StateVelStar = 4;
+int StateAccelStar = 5;
+int StateHeightTmp = 6;
+
+float StateCurrentTime = 0.0;
+
+int PixelsPerCell = 4;
+
+int WindowWidth = PixelsPerCell * ArraySize;
+int WindowHeight = WindowWidth / 2;
+
+float snoise( float x )
+{
+   return ( 2.0 * noise( x )) - 1.0;
+}
+
+float anoise( float x )
+{
+   return ( -2.0 * abs( snoise( x )) ) + 1.0;
+}
+
+void EnforceBoundaryConditions( int io_a )
+{
+    State[io_a][0] = State[io_a][1];
+    State[io_a][ArraySize-1] = State[io_a][ArraySize-2];
+}
+
+void SetInitialState()
+{
+    noiseSeed( 0 );
+    for ( int i = 0; i < ArraySize; ++i )
+    {
+        float worldX = 2341.17 + DX * ( float )i;
+        State[StateHeight][i] = 0.5 * anoise( worldX * 0.0625 ) +
+                         0.4 * anoise( worldX * 0.125 ) +
+                         0.3 * anoise( worldX * 0.25 ) +
+                         0.2 * anoise( worldX * 0.5 );
+        State[StateVel][i] = 0.0;
+    }
+    EnforceBoundaryConditions( StateHeight );
+    EnforceBoundaryConditions( StateVel );
+    StateCurrentTime = 0.0;
+}
+
+void setup()
+{
+    SetInitialState();
     
     size( WindowWidth, WindowHeight );
     
@@ -118,12 +804,6 @@ void GetInput()
     }
 }
 
-void EnforceBoundaryConditions( int io_a )
-{
-    State[io_a][0] = State[io_a][1];
-    State[io_a][ArraySize-1] = State[io_a][ArraySize-2];
-}
-
 void A_from_H( int i_h )
 {
     for ( int i = 1; i < ArraySize-1; ++i )
@@ -140,22 +820,13 @@ void A_from_H( int i_h )
     EnforceBoundaryConditions( StateAccelStar );
 }
 
-// Init estimate
-void InitEstimate()
-{
-    for ( int i = 0; i < ArraySize; ++i )
-    {
-         State[StateHeight][i] = State[StateHeightPrev][i];
-         State[StateVel][i] = State[StateVelPrev][i];
-    }
-}
-
 // Estimate temp height
 void EstimateTempHeight( float i_dt )
 {
     for ( int i = 0; i < ArraySize; ++i )
     {
-        State[StateHeightTmp][i] = State[StateHeightPrev][i] + ( i_dt * State[StateVelStar][i] );
+        State[StateHeightTmp][i] = State[StateHeightPrev][i] + 
+                ( i_dt * State[StateVelStar][i] );
     }
     EnforceBoundaryConditions( StateHeightTmp );
 }
@@ -165,7 +836,8 @@ void EstimateVelStar( float i_dt )
 {
     for ( int i = 0; i < ArraySize; ++i )
     {
-        State[StateVelStar][i] = State[StateVelPrev][i] + ( i_dt * State[StateAccelStar][i] );
+        State[StateVelStar][i] = State[StateVelPrev][i] + 
+                ( i_dt * State[StateAccelStar][i] );
     }
     EnforceBoundaryConditions( StateVelStar );
 }
@@ -180,14 +852,35 @@ void AccumulateEstimate( float i_dt )
     }
 }
 
+// Acceleration from height. This uses the spatial second derivative.
+// Note that we're iterating only over the central points, not the edges,
+// which are handled by the boundary condition.
+void A_from_H( int i_h )
+{
+    for ( int i = 1; i < ArraySize-1; ++i )
+    {
+        float hLeft = State[i_h][i-1];
+        float hCen = State[i_h][i];
+        float hRight = State[i_h][i+1];
+
+        float d2h_dx2 = ( hRight + hLeft - ( 2.0*hCen ) ) / sq( DX );
+
+        State[StateAccelStar][i] = sq( WaveSpeed ) * d2h_dx2;
+    }
+    
+    EnforceBoundaryConditions( StateAccelStar );
+}
+
 // Time Step function.
 void TimeStep( float i_dt )
 {
     // Swap state
     SwapState();
     
-    // Initialize estimate.
-    InitEstimate();
+    // Initialize estimate. This just amounts to copying
+    // The previous values into the current values.
+    CopyArray( StateHeightPrev, StateHeight );
+    CopyArray( StateVelPrev, StateVel );
     
     // Vstar1, Astar1
     CopyArray( StateVel, StateVelStar );
@@ -252,15 +945,27 @@ void draw()
    
     TimeStep( 1.0 / 24.0 );
 
+    DrawState();
+    
     // Label.
     fill( 1.0 );
-    text( "Wave Equation RK4", 10, 30 );
-  
-    DrawState();
+    text( "Wave Equation RK4 - With Input", 10, 30 );
+}
+
+// Reset function. If the key 'r' is released in the display, 
+// copy the initial state to the state.
+void keyReleased()
+{
+    if ( key == 114 )
+    {
+        SetInitialState();
+    }  
 }
 
 </script>
-<canvas id="pjsWaveEqnRK4"> </canvas>
+<canvas id="pjsWaveEqnRK4_WithInput"> </canvas>
 <p>
+Uh oh.... Looks like stability has eluded us again. Next class, we'll look
+into how to fix stability for cases like this, involving multiple derivatives.
 
 </body>
