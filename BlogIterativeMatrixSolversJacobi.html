@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Encino Sim Class : Iterative Matrix Solvers and the Jacobi Method</title>
+
+  <style type="text/css" title="currentStyle">
+    @import "css/SimClass.css";
+  </style>
+
+<script src='http://processingjs.org/js/processing.min.js' type='text/javascript'/></script>
+<!Install the MathJax stuff so we can show LaTeX>
+<script type="text/x-mathjax-config">
+MathJax.Hub.Config({
+  TeX: { equationNumbers: { autoNumber: "AMS" } }
+});
+</script>
+<script type="text/javascript"
+  src="https://c328740.ssl.cf1.rackcdn.com/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML">
+</script>
+</head>
+<body>
+<h2>Iterative Methods for Large Linear Systems</h2>
+In our
+<a href="http://encinographic.blogspot.com/2013/06/simulation-class-matrix-methods-and.html">
+previous post</a>, 
+we carefully discretized the equation of motion for a 1D wave equation into
+a large set of simple linear equations, which we then converted into a sparse
+matrix notation. It's important to understand that the matrix & vector notation
+that we reached at the end of our derivation, after creating a list
+of simultaneous linear equations, was just a change of notation, nothing more.
+Matrices and the notation surrounding linear algebra can sometimes be
+obfuscating and generate confusion - whenever that is the case, it's helpful
+to just remember that the matrix notation is a short-hand, and that we can
+always revert to the system of equations that the matrix expression represents.
+<p>
+So, armed with this fantastically simple linear matrix equation, we are tasked 
+with solving the system for the unknown solution vector, \(x\):
+
+<div class="LaTexEquation">
+  \[
+  \begin{equation}
+  A x = b
+  \label{eq:AxEqualsB}
+  \end{equation}
+  \]
+</div>
+
+Surely we can just construct our matrix \(A\), invert the matrix to produce
+\(A^{-1}\), and then our solution would be:
+
+<div class="LaTexEquation">
+  \[
+  \begin{equation}
+  x = A^{-1} b
+  \label{eq:XequalsAinvB}
+  \end{equation}
+  \]
+</div>
+
+This simple solution is comforting, but sadly, totally unusable in any
+practical setting.  Why? 
+<p>
+The first and most important problem we run into with an explicit matrix
+inversion solution is that the matrices themselves would be incredibly massive
+in size for any real-world problem.  Imagine we have a fluid simulation in
+2D that is \(1024 \times 1024\) in size. In any such simulation, our state
+array size \(N\) is equal to the total number of points being solved for,
+so in this case, \(N = 1024 \times 1024 = 1048576\).  The matrix \(A\) is,
+as we've seen, size \(N \times N\), which would in that simple case be
+\(N^4 = 109951162776\), or just slightly larger than \(10^{12}\) points, which
+would take just over 4 <i>TERABYTES</i> of RAM to hold, for single precision
+floating point.
+<h3>Sparse Matrices</h3>
+The obvious immediate solution to the above storage problem is to take advantage
+of the fact that our matrices are <i>sparse</i>. A 
+<a href="http://en.wikipedia.org/wiki/Sparse_matrix">Sparse Matrix</a> is one
+in which most of the matrix elements are zero. In our example, we notice that
+there is at most three non-zero elements per-row, one of which is always the
+diagonal element. The other non-zero elements are always one column before or
+after our diagonal element. We could be clever and store our matrix \(A\)
+as an array of \(N\) "Sparse Rows", where a Sparse Row has a structure something
+like this:
+<p>
+<pre><code>
+class SparseMatrixRow
+{
+    float indices[3];
+    float values[3];
+    int numIndices;
+    SparseMatrixRow()
+    {
+        numIndices = 0;
+    }
+    void addElement( int i_index, float i_val )
+    {
+        if ( numIndices < 3 )
+        {
+            values[numIndices] = i_val;
+            indices[numIndices] = i_index;
+            ++numIndices;
+        }
+    }
+};
+</code></pre>
+<p>
+Indeed, structures similar to the one above are the basis of sparse-matrix
+linear algebra libraries such as 
+<a href="http://math.nist.gov/spblas/">Sparse BLAS</a>.  With the above 
+representation, our matrix in the 2D height field case would take about 28
+megabytes to store, a huge improvement over 4 terabytes.
+<p>
+However, even with the sparse representation of \(A\), how do we invert
+a huge matrix like this? If you've ever worked to invert a \(3 \times 3\) or
+\(4 \times 4\) matrix, you know how complex that could be - how on earth would
+you go about inverting a square matrix with a million rows, and how would
+you store your intermediate results, which may not enjoy the simple sparse
+form that the original matrix \(A\) had?
+<p>
+Problems like the above are what supercomputers were essentially built to solve,
+and there are excellent libraries and tools for doing this. However, such
+systems are arcane in nature, usually written in FORTRAN, and in our case,
+drastically more firepower than we actually need.
+
+<h3>Iterative Methods</h3>
+Our matrix has some nice properties that will allow us to solve the problem
+much more simply. Firstly, it is symmetric. A 
+<a href="http://en.wikipedia.org/wiki/Symmetric_matrix">Symmetric Matrix</a>
+is one which is identical under a transposition of the rows and columns. If you
+take any element to the upper right of the diagonal, and look at the mirror
+of that element in the same location on the lower left of the diagonal, you'll
+see the same value. A symmetric matrix as a representation of a physical 
+equation of motion is an expression of 
+<a href="http://en.wikipedia.org/wiki/Newton's_laws_of_motion#Newton.27s_3rd_Law">
+Newton's Third Law</a>, that each action has an equal but opposite reaction. It
+means that the effect point \(i\) has on point \(j\) is the same as the 
+effect point \(j\) has on point \(i\).  Conservation of energy emerges from
+this law.
+<p>
+Secondly, assuming that our timestep \(\Delta t\) is relatively small compared 
+to the ratio of wave propagation speed \(c\) to the spatial discretization
+\(\Delta x\), our off-diagonal elements will be much smaller in absolute 
+magnitude than our diagonal elements. This means that our system is a candidate
+for <a href="http://en.wikipedia.org/wiki/Jacobi_method">The Jacobi Method</a>,
+which is the simplest iterative \(A x = b\) solver.
+<p>
+<a href="http://en.wikipedia.org/wiki/Iterative_method#Linear_systems">
+Iterative methods</a>, which include Jacobi, but also include more fancy solvers
+such as 
+<a href="http://en.wikipedia.org/wiki/Conjugate_gradient_method">
+The Conjugate Gradient Method</a>, all involve some variation on making an
+initial guess for the unknown solution vector \(x^{\star0}\), then using that
+guess in some way to produce a better guess \(x^{\star1}\), and so on, until
+the change between guesses from one iteration to the next falls below some
+acceptance threshold, or a maximum number of iterations is reached.
+<p>
+For all iterative methods, we will require storage for the next guess and
+the previous guess, and we'll swap these temporary storage arrays back and forth
+as we iterate towards the solution. Our generic state-vector implementation
+easily allows for this, and indeed we already used this facility when we 
+computed our <b>RK4</b> approximation.
+
+<h3>Jacobi Method</h3>
+The Jacobi Method is so simple, we don't even need to construct a sparse
+matrix or a solution vector, we can simply solve for the new estimate of the
+solution vector \(x\) in place.
+<p>
+Jacobi works by taking each equation and assuming that everything other
+than the diagonal element is known - which we do by using values from the
+previous guess of \(x\).  The new guess for the diagonal element \(x\) is then,
+at any row of the matrix:
+
+  <div class="LaTexEquation">
+  \[
+  \begin{equation}
+  x^{\star k+1}_i = \frac{b_i - \sum_{j\neq i}A_{i,j} x^{\star k}_{j}}{A_{i,i}}
+  \label{eq:JacobiIteration}
+  \end{equation}
+  \]
+  </div>
+
+In the above Equation \(\eqref{eq:JacobiIteration}\), the new guess iteration
+\(k+1\) is computed from the values of the old guess iteration \(k\).  This
+is fairly easy to code, and looks like this:
+<p>
+<pre><code>
+// Jacobi iteration to get temp acceleration
+void JacobiIterationAccel( int i_aOld, int o_aNew, int i_hStar, float i_dt )
+{
+    float aij = -sq( WaveSpeed ) * sq( i_dt ) / sq( DX );
+    float aii = 1.0 + ( 2.0 * sq( WaveSpeed ) * sq( i_dt ) / sq( DX ) );
+    float bgain = sq( WaveSpeed ) / sq( DX );
+    
+    for ( int i = 1; i < ArraySize-1; ++i )
+    {
+        float aLeft = State[i_aOld][i-1];
+        float aRight = State[i_aOld][i+1];
+        
+        float hStarLeft = State[i_hStar][i-1];
+        float hStarCen = State[i_hStar][i];
+        float hStarRight = State[i_hStar][i+1];
+        
+        float bi = bgain * ( hStarLeft + hStarRight - ( 2.0 * hStarCen ) );
+        
+        float sumOffDiag = ( aij * aLeft ) + ( aij * aRight );
+        
+        State[o_aNew][i] = ( bi - sumOffDiag ) / aii;
+    }
+    
+    EnforceAccelBoundaryConditions( o_aNew );
+}
+</code></pre>
+<p>
+The code above computes a single new guess for the accelerations from an
+old guess for the accelerations.  We can then write our "acceleration from
+position" function as we had before, as follows. We're taking a fixed number
+of iterations for guessing:
+<p>
+<pre><code>
+// Solve for acceleration.
+void JacobiSolveAccel( int i_hStar, float i_dt )
+{  
+    // Initialize acceleration to zero.
+    FillArray( StateAccelStar, 0.0 );
+    
+    // Solve from StateJacobiTmp into StateAccel
+    for ( int iter = 0; iter < 20; ++iter )
+    {
+        int tmp = StateAccelStar;
+        StateAccelStar = StateJacobiTmp;
+        StateJacobiTmp = tmp;
+        
+        JacobiIterationAccel( StateJacobiTmp, StateAccelStar, i_hStar, i_dt );
+    }
+}
+
+void EstimateAccelStar( float i_dt )
+{
+    JacobiSolveAccel( StateHeightStar, i_dt );
+}
+</code></pre>
+<p>
+The rest of our implementation looks basically identical. Here's the
+final timestep, which looks exactly like our previous RK4 implementation:
+<p>
+<pre><code>
+// Time Step function.
+void TimeStep( float i_dt )
+{
+    // Swap state
+    SwapState();
+    
+    // Initialize estimate. This just amounts to copying
+    // The previous values into the current values.
+    CopyArray( StateHeightPrev, StateHeight );
+    CopyArray( StateVelPrev, StateVel );
+    
+    // 1
+    CopyArray( StateVel, StateVelStar );
+    EstimateHeightStar( i_dt );
+    EstimateAccelStar( i_dt );
+    AccumulateEstimate( i_dt / 6.0 );
+    
+    // 2
+    EstimateVelStar( i_dt / 2.0 );
+    EstimateHeightStar( i_dt / 2.0 );
+    EstimateAccelStar( i_dt / 2.0 );
+    AccumulateEstimate( i_dt / 3.0 );
+    
+    // 3
+    EstimateVelStar( i_dt / 2.0 );
+    EstimateHeightStar( i_dt / 2.0 );
+    EstimateAccelStar( i_dt / 2.0 );
+    AccumulateEstimate( i_dt / 3.0 );
+    
+    // 4
+    EstimateVelStar( i_dt );
+    EstimateHeightStar( i_dt );
+    EstimateAccelStar( i_dt );
+    AccumulateEstimate( i_dt / 6.0 );
+    
+    // Final boundary conditions on height and vel
+    EnforceHeightBoundaryConditions( StateHeight );
+    EnforceVelBoundaryConditions( StateVel );
+
+    // Update current time.
+    StateCurrentTime += i_dt;
+}
+</code></pre>
+<p> 
+And that's it...  Let's see how that looks in Processing!
+<p>
+<script type="application/processing" data-processing-target="pjsWaveEqnStableRK4">
+float WaveSpeed = 0.5;
+
+float WorldSize = 10.0;
+int ArraySize = 128;
+float DX = WorldSize / ArraySize;
+
+float LX = WorldSize;
+float LY = WorldSize / 2.0;
+
+int StateSize = 8;
+float[][] State = new float[StateSize][ArraySize];
+int StateHeight = 0;
+int StateVel = 1;
+int StateHeightPrev = 2;
+int StateVelPrev = 3;
+int StateVelStar = 4;
+int StateAccelStar = 5;
+int StateHeightStar = 6;
+int StateJacobiTmp = 7;
+
+float StateCurrentTime = 0.0;
+
+int PixelsPerCell = 4;
+
+int WindowWidth = PixelsPerCell * ArraySize;
+int WindowHeight = WindowWidth / 2;
+
+boolean InputActive = false;
+int InputIndex = 0;
+float InputHeight = 0;
+
+float snoise( float x )
+{
+   return ( 2.0 * noise( x )) - 1.0;
+}
+
+float anoise( float x )
+{
+   return ( -2.0 * abs( snoise( x )) ) + 1.0;
+}
+
+void EnforceAccelBoundaryConditions( int io_a )
+{
+    State[io_a][0] = 0.0;
+    State[io_a][ArraySize-1] = 0.0;
+}
+
+void EnforceVelBoundaryConditions( int io_v )
+{
+    State[io_v][0] = State[io_v][1];
+    State[io_v][ArraySize-1] = State[io_v][ArraySize-2];
+}
+
+void EnforceHeightBoundaryConditions( int io_h )
+{
+    //State[io_h][0] = ( 2.0 * State[io_h][1] ) - State[io_h][2];
+    //State[io_h][ArraySize-1] = ( 2.0 * State[io_h][ArraySize-2] ) - State[io_h][ArraySize-3];
+    State[io_h][0] = State[io_h][1];
+    State[io_h][ArraySize-1] = State[io_h][ArraySize-2];
+    
+    if ( InputActive )
+    {
+        State[io_h][InputIndex] = InputHeight;
+    }
+}
+
+void CopyArray( int i_src, int o_dst )
+{
+    for ( int i = 0; i < ArraySize; ++i )
+    {
+        State[o_dst][i] = State[i_src][i];
+    }
+}
+
+void FillArray( int o_a, float i_val )
+{
+    for ( int i = 0; i < ArraySize; ++i )
+    {
+        State[o_a][i] = i_val;
+    }
+}
+
+void SetInitialState()
+{
+    noiseSeed( 0 );
+    for ( int i = 0; i < ArraySize; ++i )
+    {
+        float worldX = 2341.17 + DX * ( float )i;
+        State[StateHeight][i] = 0.5 * anoise( worldX * 0.0625 ) +
+                         0.4 * anoise( worldX * 0.125 ) +
+                         0.3 * anoise( worldX * 0.25 ) +
+                         0.2 * anoise( worldX * 0.5 );
+        State[StateVel][i] = 0.0;
+    }
+    EnforceHeightBoundaryConditions( StateHeight );
+    EnforceVelBoundaryConditions( StateVel );
+    StateCurrentTime = 0.0;
+    
+    CopyArray( StateHeight, StateHeightPrev );
+    CopyArray( StateVel, StateVelPrev );
+    InputActive = false;
+}
+
+void setup()
+{
+    SetInitialState();
+    
+    size( WindowWidth, WindowHeight );
+    
+    colorMode( RGB, 1.0 );
+    strokeWeight( 0.5 );
+    textSize( 24 );
+}
+
+void SwapHeight()
+{
+    int tmp = StateHeight;
+    StateHeight = StateHeightPrev;
+    StateHeightPrev = tmp;
+}
+
+void SwapVel()
+{
+    int tmp = StateVel;
+    StateVel = StateVelPrev;
+    StateVelPrev = tmp;
+}
+
+void SwapState()
+{
+    SwapHeight();
+    SwapVel();
+}
+
+void GetInput()
+{
+    InputActive = false;
+    
+    if ( mousePressed && mouseButton == LEFT )
+    {
+        float mouseCellX = mouseX / ( ( float )PixelsPerCell );
+        float mouseCellY = ( (height/2) - mouseY ) / ( ( float )PixelsPerCell );
+        float simY = mouseCellY * DX;
+        
+        int iX = ( int )floor( mouseCellX + 0.5 );
+        if ( iX > 0 && iX < ArraySize-1 )
+        {
+            InputIndex = iX;
+            InputHeight = simY;
+            InputActive = true;
+        }
+    }
+}
+
+// Estimate height star
+void EstimateHeightStar( float i_dt )
+{
+    for ( int i = 0; i < ArraySize; ++i )
+    {
+        State[StateHeightStar][i] = State[StateHeightPrev][i] + 
+                ( i_dt * State[StateVelStar][i] );
+    }
+    EnforceHeightBoundaryConditions( StateHeightStar );
+}
+
+// Estimate vel star
+void EstimateVelStar( float i_dt )
+{
+    for ( int i = 0; i < ArraySize; ++i )
+    {
+        State[StateVelStar][i] = State[StateVelPrev][i] + 
+                ( i_dt * State[StateAccelStar][i] );
+    }
+    EnforceVelBoundaryConditions( StateVelStar );
+}
+
+// Jacobi iteration to get temp acceleration
+void JacobiIterationAccel( int i_aOld, int o_aNew, int i_hStar, float i_dt )
+{
+    float aij = -sq( WaveSpeed ) * sq( i_dt ) / sq( DX );
+    float aii = 1.0 + ( 2.0 * sq( WaveSpeed ) * sq( i_dt ) / sq( DX ) );
+    float bgain = sq( WaveSpeed ) / sq( DX );
+    
+    for ( int i = 1; i < ArraySize-1; ++i )
+    {
+        float aLeft = State[i_aOld][i-1];
+        float aRight = State[i_aOld][i+1];
+        
+        float hStarLeft = State[i_hStar][i-1];
+        float hStarCen = State[i_hStar][i];
+        float hStarRight = State[i_hStar][i+1];
+        
+        float bi = bgain * ( hStarLeft + hStarRight - ( 2.0 * hStarCen ) );
+        
+        float sumOffDiag = ( aij * aLeft ) + ( aij * aRight );
+        
+        State[o_aNew][i] = ( bi - sumOffDiag ) / aii;
+    }
+    
+    EnforceAccelBoundaryConditions( o_aNew );
+}
+
+// Solve for acceleration.
+void JacobiSolveAccel( int i_hStar, float i_dt )
+{  
+    // Initialize acceleration to zero.
+    FillArray( StateAccelStar, 0.0 );
+    
+    // Solve from StateJacobiTmp into StateAccel
+    for ( int iter = 0; iter < 20; ++iter )
+    {
+        int tmp = StateAccelStar;
+        StateAccelStar = StateJacobiTmp;
+        StateJacobiTmp = tmp;
+        
+        JacobiIterationAccel( StateJacobiTmp, StateAccelStar, i_hStar, i_dt );
+    }
+}
+
+void EstimateAccelStar( float i_dt )
+{
+    JacobiSolveAccel( StateHeightStar, i_dt );
+}
+
+// Accumulate estimate
+void AccumulateEstimate( float i_dt )
+{
+    for ( int i = 0; i < ArraySize; ++i )
+    {
+        State[StateHeight][i] += i_dt * State[StateVelStar][i];
+        State[StateVel][i] += i_dt * State[StateAccelStar][i];
+    }
+}
+
+// Time Step function.
+void TimeStep( float i_dt )
+{
+    // Swap state
+    SwapState();
+    
+    // Initialize estimate. This just amounts to copying
+    // The previous values into the current values.
+    CopyArray( StateHeightPrev, StateHeight );
+    CopyArray( StateVelPrev, StateVel );
+    
+    // 1
+    CopyArray( StateVel, StateVelStar );
+    EstimateHeightStar( i_dt );
+    EstimateAccelStar( i_dt );
+    AccumulateEstimate( i_dt / 6.0 );
+    
+    // 2
+    EstimateVelStar( i_dt / 2.0 );
+    EstimateHeightStar( i_dt / 2.0 );
+    EstimateAccelStar( i_dt / 2.0 );
+    AccumulateEstimate( i_dt / 3.0 );
+    
+    // 3
+    EstimateVelStar( i_dt / 2.0 );
+    EstimateHeightStar( i_dt / 2.0 );
+    EstimateAccelStar( i_dt / 2.0 );
+    AccumulateEstimate( i_dt / 3.0 );
+    
+    // 4
+    EstimateVelStar( i_dt );
+    EstimateHeightStar( i_dt );
+    EstimateAccelStar( i_dt );
+    AccumulateEstimate( i_dt / 6.0 );
+    
+    // Final boundary conditions on height and vel
+    EnforceHeightBoundaryConditions( StateHeight );
+    EnforceVelBoundaryConditions( StateVel );
+
+    // Update current time.
+    StateCurrentTime += i_dt;
+}
+
+void DrawState()
+{
+    float OffsetY = 0.5 * ( float )WindowHeight;
+    for ( int i = 0; i < ArraySize; ++i )
+    {
+        float SimX = DX *  ( float )i;
+        float PixelsX = ( float )( i * PixelsPerCell );
+        float SimY = State[StateHeight][i];
+        float PixelsY = SimY * (( float )PixelsPerCell ) / DX;
+        float PixelsMinY = OffsetY - PixelsY;
+        float PixelsHeight = (( float )WindowHeight) - PixelsMinY;
+
+        fill( 0.0, 0.0, 1.0 );   
+        rect( PixelsX, OffsetY - PixelsY, PixelsPerCell, PixelsHeight );
+    }
+}
+
+void draw()
+{
+    background( 0.9 );
+   
+    GetInput();
+   
+    TimeStep( 1.0 / 24.0 );
+
+    DrawState();
+    
+    // Label.
+    fill( 1.0 );
+    text( "Wave Equation Stable Jacobi RK4", 10, 30 );
+}
+
+// Reset function. If the key 'r' is released in the display, 
+// copy the initial state to the state.
+void keyReleased()
+{
+    if ( key == 114 )
+    {
+        SetInitialState();
+    }  
+}
+
+</script>
+<canvas id="pjsWaveEqnStableRK4"> </canvas>
+<p>
+And with that, we're finished... (for now!)
+
+<p>
+<h2>Download</h2>
+All of the files associated with this class are available via a public github repository, found here:
+<a href="https://github.com/blackencino/SimClass">https://github.com/blackencino/SimClass</a>
+
+
+</body>
