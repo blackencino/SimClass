@@ -33,6 +33,8 @@ int InputIndexX = 0;
 int InputIndexY = 0;
 float InputHeight = 0;
 
+bool DisplayInstructions = true;
+
 PImage StateImage = createImage( NX, NY, RGB );
 
 // 0 for first-order,
@@ -129,6 +131,7 @@ void SetInitialState() {
     CopyArray( StateHeight, StateHeightPrev );
     CopyArray( StateVel, StateVelPrev );
     InputActive = false;
+    DisplayInstructions = true;
 }
 
 void setup() {
@@ -171,6 +174,7 @@ void GetInput() {
             InputIndexY = iY;
             InputHeight = 1.5;
             InputActive = true;
+            DisplayInstructions = false;
         }
     }
 }
@@ -396,6 +400,11 @@ void draw() {
         text("2D Wave Equation : Jacobi, RK2", 10, 30);
     } else {
         text("2D Wave Equation : Jacobi, RK4", 10, 30);
+    }
+
+    // Instructions
+    if (DisplayInstructions) {
+        text("Draw in me!", 200, 270);
     }
 }
 
