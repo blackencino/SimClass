@@ -34,7 +34,7 @@ float anoise( float x )
    return ( -2.0 * abs( snoise( x )) ) + 1.0;
 }
 
-void EnforceBoundaryConditions( int io_a )
+void EnforceNeumannBoundaryConditions( int io_a )
 {
     State[io_a][0] = State[io_a][1];
     State[io_a][ArraySize-1] = State[io_a][ArraySize-2];
@@ -60,9 +60,9 @@ void SetInitialState()
 void setup()
 {
     SetInitialState();
-    
+
     size( WindowWidth, WindowHeight );
-    
+
     colorMode( RGB, 1.0 );
     strokeWeight( 0.5 );
     textSize( 24 );
@@ -103,7 +103,7 @@ void GetInput()
         float mouseCellX = mouseX / ( ( float )PixelsPerCell );
         float mouseCellY = ( (height/2) - mouseY ) / ( ( float )PixelsPerCell );
         float simY = mouseCellY * DX;
-        
+
         int iX = ( int )floor( mouseCellX + 0.5 );
         if ( iX > 0 && iX < ArraySize-1 )
         {
@@ -125,8 +125,8 @@ void A_from_H( int i_h )
 
         State[StateAccelStar][i] = sq( WaveSpeed ) * d2h_dx2;
     }
-    
-    EnforceBoundaryConditions( StateAccelStar );
+
+    EnforceNeumannBoundaryConditions( StateAccelStar );
 }
 
 // Estimate temp height
@@ -134,10 +134,10 @@ void EstimateTempHeight( float i_dt )
 {
     for ( int i = 0; i < ArraySize; ++i )
     {
-        State[StateHeightTmp][i] = State[StateHeightPrev][i] + 
+        State[StateHeightTmp][i] = State[StateHeightPrev][i] +
                 ( i_dt * State[StateVelStar][i] );
     }
-    EnforceBoundaryConditions( StateHeightTmp );
+    EnforceNeumannBoundaryConditions( StateHeightTmp );
 }
 
 // Estimate vel star
@@ -145,10 +145,10 @@ void EstimateVelStar( float i_dt )
 {
     for ( int i = 0; i < ArraySize; ++i )
     {
-        State[StateVelStar][i] = State[StateVelPrev][i] + 
+        State[StateVelStar][i] = State[StateVelPrev][i] +
                 ( i_dt * State[StateAccelStar][i] );
     }
-    EnforceBoundaryConditions( StateVelStar );
+    EnforceNeumannBoundaryConditions( StateVelStar );
 }
 
 // Accumulate estimate
@@ -176,8 +176,8 @@ void A_from_H( int i_h )
 
         State[StateAccelStar][i] = sq( WaveSpeed ) * d2h_dx2;
     }
-    
-    EnforceBoundaryConditions( StateAccelStar );
+
+    EnforceDirichletBoundaryConditions( StateAccelStar );
 }
 
 // Time Step function.
@@ -185,18 +185,18 @@ void TimeStep( float i_dt )
 {
     // Swap state
     SwapState();
-    
+
     // Initialize estimate. This just amounts to copying
     // The previous values into the current values.
     CopyArray( StateHeightPrev, StateHeight );
     CopyArray( StateVelPrev, StateVel );
-    
+
     // Vstar1, Astar1
     CopyArray( StateVel, StateVelStar );
     A_from_H( StateHeight );
     // Accumulate
     AccumulateEstimate( i_dt / 6.0 );
-    
+
     // Height Temp 2
     EstimateTempHeight( i_dt / 2.0 );
     // Vstar2, Astar2
@@ -204,7 +204,7 @@ void TimeStep( float i_dt )
     A_from_H( StateHeightTmp );
     // Accumulate
     AccumulateEstimate( i_dt / 3.0 );
-    
+
     // Height Temp 3
     EstimateTempHeight( i_dt / 2.0 );
     // Vstar3, Astar3
@@ -212,7 +212,7 @@ void TimeStep( float i_dt )
     A_from_H( StateHeightTmp );
     // Accumulate
     AccumulateEstimate( i_dt / 3.0 );
-    
+
      // Height Temp 4
     EstimateTempHeight( i_dt );
     // Vstar3, Astar3
@@ -220,10 +220,10 @@ void TimeStep( float i_dt )
     A_from_H( StateHeightTmp );
     // Accumulate
     AccumulateEstimate( i_dt / 6.0 );
-    
+
     // Final boundary conditions on height and vel
-    EnforceBoundaryConditions( StateHeight );
-    EnforceBoundaryConditions( StateVel );
+    EnforceNeumannBoundaryConditions( StateHeight );
+    EnforceNeumannBoundaryConditions( StateVel );
 
     // Update current time.
     StateCurrentTime += i_dt;
@@ -241,7 +241,7 @@ void DrawState()
         float PixelsMinY = OffsetY - PixelsY;
         float PixelsHeight = (( float )WindowHeight) - PixelsMinY;
 
-        fill( 0.0, 0.0, 1.0 );   
+        fill( 0.0, 0.0, 1.0 );
         rect( PixelsX, OffsetY - PixelsY, PixelsPerCell, PixelsHeight );
     }
 }
@@ -249,24 +249,24 @@ void DrawState()
 void draw()
 {
     background( 0.9 );
-   
+
     GetInput();
-   
+
     TimeStep( 1.0 / 24.0 );
 
     DrawState();
-    
+
     // Label.
     fill( 1.0 );
     text( "Wave Equation RK4 - With Input", 10, 30 );
 }
 
-// Reset function. If the key 'r' is released in the display, 
+// Reset function. If the key 'r' is released in the display,
 // copy the initial state to the state.
 void keyReleased()
 {
     if ( key == 114 )
     {
         SetInitialState();
-    }  
+    }
 }
