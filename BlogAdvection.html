@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Encino Sim Class : Advection</title>
+
+  <style type="text/css" title="currentStyle">
+    @import "css/SimClass.css";
+  </style>
+
+<script src='processing-1.4.1.js' type='text/javascript'/>
+</script>
+<!Install the MathJax stuff so we can show LaTeX>
+<script type="text/x-mathjax-config">
+MathJax.Hub.Config({
+  TeX: { equationNumbers: { autoNumber: "AMS" },
+         extensions: ["AMSmath.js"] }
+});
+</script>
+<script type="text/javascript"
+  src="https://c328740.ssl.cf1.rackcdn.com/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML">
+</script>
+</head>
+<body>
+<h2>Advection</h2>
+In our <a href="http://encinographic.blogspot.com/2014/05/sim-class-wave-equation-in-2d.html">previous post</a>, we concluded our exploration of iterative matrix methods,
+and the Jacobi method in particular, for solving the 2D wave equation. We'll 
+come back to that method a bit later when we explore different applications of
+<a href="http://en.wikipedia.org/wiki/Poisson's_equation">The Poisson Equation</a>.
+<p>
+We've now built up enough machinery to start building the 2D "smoke" solver promised
+at the outset of the class. The system we'd like to model is a fluid in a 
+rectangular area, with a coloration and impulse that are added via external forces
+(the mouse, in this simple case). The coloration will decay over time, and we 
+will use it to depict smoke, or alternatively it could be interpreted as ink 
+in water.
+<p>
+Before concerning ourselves with fluid pressure, incompressibility, viscosity, 
+vorticity, and other nuanced fluid behaviors, we will first turn our attention to
+<a href="http://en.wikipedia.org/wiki/Advection">Advection</a>. Advection is
+just a fancy fluid-dynamics term for "the movement of stuff through a fluid due
+to velocity". There's another way that stuff (highly technical term) is moved
+through a fluid, and that is via diffusion, which we'll consider later. When the
+movement of stuff via fluid velocity and diffusion are considered together, it
+is called <a href="http://en.wikipedia.org/wiki/Convection">Convection</a>.
+<p>
+Examples of advection are ink or soot particles moving through a dynamic fluid
+such as water or air.
+<p>
+While advection is outwardly one of the simpler parts of fluid dynamics to
+visualize and understand, it is very difficult to simulate without sacrificing
+either stability or detail. A very popular approach to advection, which we'll use and
+discuss is called <a href="http://en.wikipedia.org/wiki/Semi-Lagrangian_scheme">
+Semi-Lagrangian Advection</a>. This scheme is unconditionally stable, but
+sacrifices sharp details of the fluid and its properties, as we'll demonstrate.
+<p>
+<h3>Fluid Velocity</h3>
+Firstly, we must consider what
+we're simulating and how to represent it in our State. For a homogeneous,
+incompressible fluid without an interface to a second fluid (called a free surface), 
+the main property of the fluid that we are simulating is its velocity. This makes
+intuitive sense -  when we think of "fluidity", we think of smooth, stream-like motion
+that changes in curvy ways over time. (Or at least I do). Velocity is a vector
+field, represented in 2D by two scalar fields, VelocityU (the fluid velocity
+in the x-direction) and VelocityV (the fluid velocity in the y-direction). These
+Scalar fields will be represented in our State exactly like the 2D scalar "height"
+property was represented in the previous wave equation example.
+<p>
+Additionally, we'll need a scalar field to represent our coloration, or soot
+amount. Before we even bother with looking at how fluid velocity or the soot 
+amount changes over time, we'll first consider how to represent these fields
+in our simulation, and how to visualize them. (Once again returning to our
+main strategy). Let's start with a simple state that's reminiscent of the 
+previous 2D Wave Equation:
+<p>
+<pre><code>
+float WorldSize = 10.0;
+int NX = 64;
+int NY = 64;
+int ArraySize = NX * NY;
+float DXY = WorldSize / NX;
+
+float LX = WorldSize;
+float LY = WorldSize;
+
+int StateSize = 3;
+float[][] State = new float[StateSize][ArraySize];
+int StateVelU = 0;
+int StateVelV = 1;
+int StateSoot = 2;
+</code></pre>
+<p>
+To set the initial state of velocity, we'll start with a noise function just
+like we used with the height field in the previous example. We'll soon see that
+this isn't a good choice, but we need to start somewhere. In previous examples
+we've been writing a small noise fractal inline, but since we'll reuse that
+in multiple places, we'll separate it out into its own function.
+We'll also initialize the soot value to a thresholded fractal.
+<p>
+<pre><code>
+float Fractal(float x, float y) {
+  float f = 0.5 * snoise( x * 0.0625, y * 0.0625 ) +
+            0.4 * snoise( x * 0.125, y * 0.125 ) +
+            0.3 * snoise( x * 0.25, y * 0.25 ) +
+            0.2 * snoise( x * 0.5, y * 0.5 );
+  return f;
+}
+
+void SetFieldToFractal(int field, 
+    float gain, float bias, 
+    float clip_min, float clip_max,
+    float offset_x, float offset_y,
+    float spacing_x, float spacing_y) {
+  noiseSeed( 0 );
+  float d;
+  for (int j = 0; j < NY; ++j) {
+    float noise_pos_y = offset_y + spacing_y * (float)j;    
+    for (int i = 0; i < NX; ++i) {
+      float noise_pos_x = offset_x + spacing_x * (float)i;
+      d = (gain * Fractal(noise_pos_x, noise_pos_y)) + bias;
+      d = constrain(d, clip_min, clip_max);
+      State[field][IX(i,j)] = d;
+    }
+  }
+}
+
+void SetFieldToSimpleFractal(int field, float gain, 
+    float offset_x, float offset_y,
+    float spacing_x, float spacing_y) {
+  SetFieldToSimpleFractal(field, gain, 0.0, -1.0e6, 1.0e6, 
+        offset_x, offset_y, spacing_x, spacing_y);
+}
+
+void SetInitialState() {
+  SetFieldToSimpleFractal(StateVelU, 1.0, 2341.17, 9911.44, DXY, DXY);
+  SetFieldToSimpleFractal(StateVelV, 1.0, -8181.13, -1881.81, DXY, DXY);
+  SetFieldToFractal(StateSoot, 1.0, 0.0, 0.0, 1.0, 11.55, -73.33, DXY, DXY);
+}
+</code></pre>
+<p>
+Note that we've removed the boundary conditions temporarily, because they'll
+require a bit of discussion. But, given this initial stab at a fluid velocity
+initialization, let's work on drawing it.
+<h3>Visualizing Fluid Velocity and Soot Simultaneously</h3>
+<p>
+How should we draw velocity and soot? There's a few different ways we could consider.
+Velocity is a vector field - in this case it has two components, U (the velocity
+of the fluid in the x direction) and V (the velocity of the fluid in the y
+direction). It will vary from positive to negative, and so we could try just
+mapping it into the red and green channels of a color image. Then we can use
+the blue channel to display the soot value. Here's what 
+that would look like, genericized slightly to include a range to map the 
+display to.
+<p>
+<pre><code>
+// Display Gamma
+float DisplayGamma = 2.2;
+
+// Draw vector field into the image. The from_low and from_high 
+// represent the numerical range that will be mapped into the 0-1
+// space of red and green. A display gamma will then be applied.
+void DrawVectorField(int field_r, int field_g, int field_b,
+    color from_low, color from_high) {
+  float r, g, b;
+  StateImage.loadPixels();
+  for (int j = 0; j < NY; ++j) {
+    for (int i = 0; i < NX; ++i) {
+      r = field_r < 0 ? 0 : State[field_r][IX(i,j)];
+      g = field_g < 0 ? 0 : State[field_g][IX(i,j)];
+      b = field_b < 0 ? 0 : State[field_b][IX(i,j)];
+      
+      // remap.
+      r = (r - red(from_low)) / (red(from_high) - red(from_low));
+      g = (g - green(from_low)) / (green(from_high) - green(from_low));
+      b = (b - blue(from_low)) / (blue(from_high) - blue(from_low));
+      
+      // constrain.
+      r = constrain(r, 0.0, 1.0);
+      g = constrain(g, 0.0, 1.0);
+      b = constrain(b, 0.0, 1.0);
+      
+      // display gamma.
+      r = pow(r, DisplayGamma);
+      g = pow(g, DisplayGamma);
+      b = pow(b, DisplayGamma);
+      
+      // Set
+      StateImage.pixels[IX(i,j)] = color(r, g, b);
+    }
+  }
+  StateImage.updatePixels();
+  image(StateImage, 0, 0, width, height);
+}
+
+void draw() {
+  // Draw Velocity 
+  DrawVectorField(StateVelU, StateVelV, StateSoot,
+    color(-1.5, -1.5, 0.0),
+    color(1.5, 1.5, 1.0));
+
+  // Label.
+  fill( 1.0 );
+  text("Fluid Velocity & Soot: RGB Display", 10, 30);
+}
+</code></pre>
+<p>
+Let's see what that looks like in Processing:
+<p>
+<script type="application/processing" data-processing-target="pjsFluidVelocitySootRGB">
+float WorldSize = 10.0;
+int NX = 64;
+int NY = 64;
+int ArraySize = NX * NY;
+float DXY = WorldSize / NX;
+
+float LX = WorldSize;
+float LY = WorldSize;
+
+int StateSize = 3;
+float[][] State = new float[StateSize][ArraySize];
+int StateVelU = 0;
+int StateVelV = 1;
+int StateSoot = 2;
+
+int PixelsPerCell = 8;
+
+int WindowWidth = PixelsPerCell * NX;
+int WindowHeight = PixelsPerCell * NY;
+
+PImage StateImage = createImage( NX, NY, RGB );
+
+// Index an element of a grid in the state array
+int IX( int i, int j ) {
+    return ( i + NX*j );
+}
+
+float snoise( float x, float y ) {
+   return (2.0 * noise( x, y )) - 1.0;
+}
+
+float Fractal(float x, float y) {
+  float f = 0.5 * snoise( x * 0.0625, y * 0.0625 ) +
+            0.4 * snoise( x * 0.125, y * 0.125 ) +
+            0.3 * snoise( x * 0.25, y * 0.25 ) +
+            0.2 * snoise( x * 0.5, y * 0.5 );
+  return f;
+}
+
+void SetFieldToFractal(int field, 
+    float gain, float bias, 
+    float clip_min, float clip_max,
+    float offset_x, float offset_y,
+    float spacing_x, float spacing_y) {
+  noiseSeed( 0 );
+  for (int j = 0; j < NY; ++j) {
+    float noise_pos_y = offset_y + spacing_y * (float)j;    
+    for (int i = 0; i < NX; ++i) {
+      float noise_pos_x = offset_x + spacing_x * (float)i;
+      float d = (gain * Fractal(noise_pos_x, noise_pos_y)) + bias;
+      d = constrain(d, clip_min, clip_max);
+      State[field][IX(i,j)] = d;
+    }
+  }
+}
+
+void SetFieldToSimpleFractal(int field, float gain, 
+    float offset_x, float offset_y,
+    float spacing_x, float spacing_y) {
+  SetFieldToFractal(field, gain, 0.0, -100000, 100000, 
+        offset_x, offset_y, spacing_x, spacing_y);
+}
+
+void SetInitialState() {
+  SetFieldToSimpleFractal(StateVelV, 1.0, 2341.17, 9911.44, DXY, DXY);
+  SetFieldToSimpleFractal(StateVelU, 1.0, -8181.13, -1881.81, DXY, DXY);
+  // Initialize soot to clipped fractal, with higher frequency.
+  SetFieldToFractal(StateSoot, 5.0, 0.0, 
+      0.0, 1.0, 511.55, -63.33, 2.0 * DXY, 2.0 * DXY);
+}
+
+void setup() {
+    SetInitialState();
+    size(WindowWidth, WindowHeight);
+    colorMode(RGB, 1.0);
+    strokeWeight(0.5);
+    textSize(24);
+    noLoop();
+}
+
+// Display Gamma
+float DisplayGamma = 2.2;
+
+// Draw vector field into the image. The from_low and from_high 
+// represent the numerical range that will be mapped into the 0-1
+// space of red and green. A display gamma will then be applied.
+void DrawVectorField(int field_r, int field_g, int field_b,
+    float from_low_r, float from_low_g, float from_low_b,
+    float from_high_r, float from_high_g, float from_high_b) {
+  float r, g, b;
+  StateImage.loadPixels();
+  for (int j = 0; j < NY; ++j) {
+    for (int i = 0; i < NX; ++i) {
+      r = field_r < 0 ? 0 : State[field_r][IX(i,j)];
+      g = field_g < 0 ? 0 : State[field_g][IX(i,j)];
+      b = field_b < 0 ? 0 : State[field_b][IX(i,j)];
+      
+      // remap.
+      r = (r - from_low_r) / (from_high_r - from_low_r);
+      g = (g - from_low_g) / (from_high_g - from_low_g);
+      b = (b - from_low_b) / (from_high_b - from_low_b);
+      
+      // constrain.
+      r = constrain(r, 0.0, 1.0);
+      g = constrain(g, 0.0, 1.0);
+      b = constrain(b, 0.0, 1.0);
+      
+      // display gamma.
+      r = pow(r, DisplayGamma);
+      g = pow(g, DisplayGamma);
+      b = pow(b, DisplayGamma);
+      
+      // Set
+      StateImage.pixels[IX(i,j)] = color(r, g, b);
+    }
+  }
+  StateImage.updatePixels();
+  image(StateImage, 0, 0, width, height);
+}
+
+void draw() {
+  // Draw Velocity 
+  DrawVectorField(StateVelU, StateVelV, StateSoot,
+    -1.5, -1.5, 0.0,
+    1.5, 1.5, 1.0);
+
+  // Label.
+  fill( 1.0 );
+  text("Fluid Velocity & Soot: RGB Display", 10, 30);
+}
+</script>
+<canvas id="pjsFluidVelocitySootRGB"> </canvas>
+<p>
+Hmmm. That's not very easy to interpret, visually. If you work with fluid solvers
+frequently, you can develop an ability to look at velocity in this way, but it's
+always non-intuitive.  Instead, let's try drawing line segments to show the
+direction of the fluid at each point. This is easy to do using the "LINES" shape
+tools in Processing. We'll create a line starting at each cell and pointing in
+the direction of the velocity, with the line lengths proportional to the velocity
+magnitude, scaled by an arbitrary constant for ease of comprehension. In code,
+<p>
+<pre><code>
+// Draw vector field as line segments. We can optionally skip
+// some of the points, and we can scale the length of the vectors
+// accordingly.
+void DrawVectorFieldAsLines(int field_u, int field_v,
+    int step_u, int step_v,
+    float gain_u, float gain_v) {
+  float u, v;
+  beginShape(LINES);
+  for (int j = step_v / 2; j < NY; j += step_v) {
+    float start_y = PixelsPerCell * (float)j;
+    for (int i = step_u / 2; i < NX; i += step_u) {
+      float start_x = PixelsPerCell * (float)i;
+      
+      u = gain_u * State[field_u][IX(i,j)];
+      v = gain_v * State[field_v][IX(i,j)];
+      
+      float end_x = start_x + PixelsPerCell * u;
+      float end_y = start_y + PixelsPerCell * v;
+      vertex(start_x, start_y);
+      vertex(end_x, end_y);
+    }
+  }
+  endShape();
+}
+
+void draw() {
+  background(0.5);
+  // Draw Velocity as lines
+  // Length gain is somewhat arbitrary.
+  float gain = 40.0 * (1.0 / 24.0) / DXY;
+  stroke(0.6, 0.2, 0.1);
+  DrawVectorFieldAsLines(StateVelU, StateVelV, 2, 2, gain, gain);
+
+  // Label.
+  fill( 1.0 );
+  text("Fluid Velocity : Velocity Lines", 10, 30);
+}
+</code></pre>
+<p> 
+Let's see what that looks like in Processing:
+<p>
+<script type="application/processing" data-processing-target="pjsFluidVelocityLines">
+float WorldSize = 10.0;
+int NX = 64;
+int NY = 64;
+int ArraySize = NX * NY;
+float DXY = WorldSize / NX;
+
+float LX = WorldSize;
+float LY = WorldSize;
+
+int StateSize = 2;
+float[][] State = new float[StateSize][ArraySize];
+int StateVelU = 0;
+int StateVelV = 1;
+
+float StateCurrentTime = 0.0;
+
+int PixelsPerCell = 8;
+
+int WindowWidth = PixelsPerCell * NX;
+int WindowHeight = PixelsPerCell * NY;
+
+boolean InputActive = false;
+int InputIndexX = 0;
+int InputIndexY = 0;
+float InputHeight = 0;
+
+PImage StateImage = createImage( NX, NY, RGB );
+
+// Index an element of a grid in the state array
+int IX( int i, int j ) {
+    return ( i + NX*j );
+}
+
+float snoise( float x, float y ) {
+   return ( 2.0 * noise( x, y )) - 1.0;
+}
+
+void EnforceDirichletBoundaryConditions( int io_a ) {
+    for (int j = 0; j < NY; ++j) {
+        if (j == 0 || j == (NY-1)) {
+            for (int i = 0; i < NX; ++i) {
+                State[io_a][IX(i,j)] = 0.0;
+            }
+        } else {
+            State[io_a][IX(0,j)] = 0.0;
+            State[io_a][IX(NX-1,j)] = 0.0;
+        }
+    }
+}
+
+void EnforceNeumannBoundaryConditions( int io_v ) {
+    for (int j = 0; j < NY; ++j) {
+        if (j == 0) {
+            for (int i = 0; i < NX; ++i) {
+                State[io_v][IX(i,0)] = State[io_v][IX(i,1)];
+            }
+        } else if (j == (NY-1)) {
+            for (int i = 0; i < NX; ++i) {
+                State[io_v][IX(i,NY-1)] = State[io_v][IX(i,NY-2)];
+            }
+        }
+
+        State[io_v][IX(0,j)] = State[io_v][IX(1,j)];
+        State[io_v][IX(NX-1,j)] = State[io_v][IX(NX-2,j)];
+    }
+}
+
+void CopyArray( int i_src, int o_dst ) {
+    for ( int i = 0; i < ArraySize; ++i ) {
+        State[o_dst][i] = State[i_src][i];
+    }
+}
+
+void FillArray( int o_a, float i_val ) {
+    for ( int i = 0; i < ArraySize; ++i ) {
+        State[o_a][i] = i_val;
+    }
+}
+
+float Fractal(float x, float y) {
+  float f = 0.5 * snoise( x * 0.0625, y * 0.0625 ) +
+            0.4 * snoise( x * 0.125, y * 0.125 ) +
+            0.3 * snoise( x * 0.25, y * 0.25 ) +
+            0.2 * snoise( x * 0.5, y * 0.5 );
+  return f;
+}
+
+void SetFieldToFractal(int field, float gain, 
+    float offset_x, float offset_y,
+    float spacing_x, float spacing_y) {
+  noiseSeed( 0 );
+  for (int j = 0; j < NY; ++j) {
+    float noise_pos_y = offset_y + spacing_y * (float)j;    
+    for (int i = 0; i < NX; ++i) {
+      float noise_pos_x = offset_x + spacing_x * (float)i;
+      State[field][IX(i,j)] = gain * Fractal(noise_pos_x, noise_pos_y);
+    }
+  }
+}
+
+void SetInitialState() {
+  SetFieldToFractal(StateVelU, 1.0, 2341.17, 9911.44, DXY, DXY);
+  SetFieldToFractal(StateVelV, 1.0, -8181.13, -1881.81, DXY, DXY);
+}
+
+void setup() {
+    SetInitialState();
+    size(WindowWidth, WindowHeight);
+    colorMode(RGB, 1.0);
+    strokeWeight(0.5);
+    textSize(24);
+    noLoop();
+}
+
+// Display Gamma
+float DisplayGamma = 2.2;
+
+// Draw vector field into the image. The from_low and from_high 
+// represent the numerical range that will be mapped into the 0-1
+// space of red and green. A display gamma will then be applied.
+void DrawVectorField(int field_u, int field_v, 
+    float from_low_u, float from_high_u,
+    float from_low_v, float from_high_v) {
+  float u, v;
+  StateImage.loadPixels();
+  for (int j = 0; j < NY; ++j) {
+    for (int i = 0; i < NX; ++i) {
+      u = State[field_u][IX(i,j)];
+      v = State[field_v][IX(i,j)];
+      
+      // remap.
+      u = (u - from_low_u) / (from_high_u - from_low_u);
+      v = (v - from_low_v) / (from_high_v - from_low_v);
+      
+      // constrain.
+      u = constrain(u, 0.0, 1.0);
+      v = constrain(v, 0.0, 1.0);
+      
+      // display gamma.
+      u = pow(u, DisplayGamma);
+      v = pow(v, DisplayGamma);
+      
+      // Set
+      StateImage.pixels[IX(i,j)] = color(u, v, 0.0);
+    }
+  }
+  StateImage.updatePixels();
+  image(StateImage, 0, 0, width, height);
+}
+
+// Draw vector field as line segments. We can optionally skip
+// some of the points, and we can scale the length of the vectors
+// accordingly.
+void DrawVectorFieldAsLines(int field_u, int field_v,
+    int step_u, int step_v,
+    float gain_u, float gain_v) {
+  float u, v;
+  beginShape(LINES);
+  for (int j = step_v / 2; j < NY; j += step_v) {
+    float start_y = PixelsPerCell * (float)j;
+    for (int i = step_u / 2; i < NX; i += step_u) {
+      float start_x = PixelsPerCell * (float)i;
+      
+      u = gain_u * State[field_u][IX(i,j)];
+      v = gain_v * State[field_v][IX(i,j)];
+      
+      float end_x = start_x + PixelsPerCell * u;
+      float end_y = start_y + PixelsPerCell * v;
+      vertex(start_x, start_y);
+      vertex(end_x, end_y);
+    }
+  }
+  endShape();
+}
+
+void draw() {
+  background(0.5);
+  // Draw Velocity as lines
+  // Length gain is somewhat arbitrary.
+  float gain = 40.0 * (1.0 / 24.0) / DXY;
+  stroke(0.6, 0.2, 0.1);
+  DrawVectorFieldAsLines(StateVelU, StateVelV, 2, 2, gain, gain);
+
+  // Label.
+  fill( 1.0 );
+  text("Fluid Velocity : Velocity Lines", 10, 30);
+}
+</script>
+<canvas id="pjsFluidVelocityLines"> </canvas>
+<p>
+That's so much easier to grok! The length scale of the lines is somewhat 
+arbitrary, and can be adjusted on an application-specific basis, or tied to a
+hotkey. Excellent! Now that we've created a velocity field in our State, and
+seen how to visualize it, it's time to consider our equations of motion.
+
+
+
+
+
+Though air and smoke are compressible, and have 
+variable density, we'll model our fluid as an incompressible fluid for simplicity.
+This gives us our first equation of state, that density, written using the greek
+letter \(\rho\), is constant, and we'll simplify life by just setting it equal
+to 1.
+<div class="LaTexEquation">
+    \[
+    \begin{equation}
+    \rho = constant = 1
+    \label{eq:ConstantDensity}
+    \end{equation}
+    \]
+</div>
+<p>
+<h2>Fluid Equations of Motion</h2>
+To derive the equations of motion for a fluid, we'll follow the steps described
+by <a href="http://en.wikipedia.org/wiki/Richard_Feynman">Richard Feynman</a> in
+the classic <a href="http://www.feynmanlectures.info/">Feynman Lectures on Physics</a>,
+Book II, Chapter 40 ("The Flow of Dry Water"). 
+<h3>Fluid Velocity</h3>
+Firstly, we must consider what
+we're simulating and how to represent it in our State. For a homogeneous,
+incompressible fluid without an interface to a second fluid (called a free surface), 
+the main property of the fluid that we are simulating is its velocity. This makes intuitive sense -  when we think of "fluidity", we think of smooth, stream-like motion that changes in curvy ways over time. (Or at least I do). 
+So, let's start with a simple state that's reminiscent of the previous 
+2D Wave Equation:
+<p>
+The equations of motion for an incompressible fluid (ignoring temperature and 
+magnetic effects) say, simply, "Mass and Momentum are Conserved". We'll do 
+a little bit of derivation here, just to understand the nature of the terms, but
+our primary concern is in translating the equations into a simulation engine, and
+there are ample resources for working through these derivations on your own.
+Let's look first at the "Momentum Is Conserved" part. 
+<h3>Hydrodynamic Equation of Motion</h3>
+Newton's second law says that mass times acceleration is equal to force. For a 
+fluid, let us consider a fixed volume of the space which the fluid occupies - in 
+our case, each "cell" of our 2D array (or grid) represents a small square with
+a fixed area - or in 3D, a volume. Let \(\mathbf{f}\) represent the 
+<i>force density</i>, that is, the force per unit volume, a continuously varying 
+field in space and time. Density, \(\rho\), is defined as the mass per unit 
+volume, so we can derive Newton's second law for fluids as:
+<div class="LaTexEquation">
+    \[
+    \begin{eqnarray}
+    mass \times (acceleration) &=& force \label{eq:NewtonsSecondLaw} \\
+    mass &=& \rho \times volume \label{eq:DensityDefinition} \\
+    force &=& \mathbf{f} \times volume \label{eq:ForceDensityDefinition} \\
+    \end{eqnarray}
+    \]
+    \[
+    \text{(substitute \eqref{eq:DensityDefinition} and \eqref{eq:ForceDensityDefinition}
+    into \eqref{eq:NewtonsSecondLaw})}
+    \]
+    \[
+    \begin{equation}
+    \rho \times volume \times (acceleration) = \mathbf{f} \times volume
+    \end{equation}
+    \]
+    \[
+    \text{(cancel out volume on both sides)}
+    \]
+    \[
+    \begin{equation}
+    \rho \times (acceleration) = \mathbf{f}
+    \label{eq:NewtonsSecondLawFluid}
+    \end{equation}
+    \]
+</div>
+The force density is made up of three parts. First, there's the pressure force 
+per unit volume, which is defined as \(\mathbf{f}_{pres} = -\nabla p\), 
+where \(p\) is the scalar pressure field. Second, there's the external forces,
+such as gravity, which are defined in terms of a potential field, \(\phi\). In
+the simple case of gravity only, we can simply say 
+\(\mathbf{f}_{ext} = \rho \mathbf{g}\), where \(\mathbf{g}\) is the gravitational
+acceleration vector. Lastly there's the viscosity force \(\mathbf{f}_{visc}\), 
+which is defined as \(\mathbf{f}_{visc} = \mu \nabla^2 \mathbf{v}\). We will 
+delve into viscosity in a later class. So, in summary:
+<div class="LaTexEquation">
+    \[
+    \begin{eqnarray}
+    \mathbf{f}_{pres} &=& -\nabla p \\
+    \mathbf{f}_{visc} &=& \mu \nabla^2 \mathbf{v} \\
+    \mathbf{f}_{ext} &=& \rho \mathbf{g} \\
+    \end{eqnarray}
+    \]
+    \[
+    \begin{eqnarray}
+    \mathbf{f} &=& \mathbf{f}_{pres} + \mathbf{f}_{visc} + \mathbf{f}_{ext} \\
+    \mathbf{f} &=& -\nabla p + \mu \nabla^2 \mathbf{v} + \rho \mathbf{g}
+    \label{eq:ForceDensityExpanded} \\
+    \end{eqnarray}
+    \]
+</div>
+The only thing that's left is the acceleration term. This is tricker than it 
+seems! The obvious thing to do would be to say that acceleration equals
+\(\frac{\partial \mathbf{v}}{\partial t}\). However, this is not correct, for
+subtle reasons.  We're simulating our fluid on a computation grid (our state
+array cells) that is defined at fixed locations in space. The individual particles
+of fluid are moving through those locations, and so we have to take the motion 
+of the fluid into account when computing acceleration. This is called the "material
+derivative" of velocity, written \(\frac{D \mathbf{v}}{D t}\). There's a detailed 
+derivation in Chapter 40 of the
+<a href="http://www.feynmanlectures.info/">Feynman Lectures on Physics</a>, which
+we'll skip to the end of:
+<div class="LaTexEquation">
+    \[
+    \begin{equation}
+    \frac{D \mathbf{v}}{D t} = v_x \frac{\partial \mathbf{v}}{\partial x} +
+        v_y \frac{\partial \mathbf{v}}{\partial y} +
+        v_z \frac{\partial \mathbf{v}}{\partial z} +
+        \frac{\partial \mathbf{v}}{\partial t}
+    \label{eq:MaterialDerivativeBigD}
+    \end{equation}
+    \]
+</div>
+There's a symbolic notation for the summed spatial partial derivatives above,
+called the 
+<a href="http://en.wikipedia.org/wiki/Advection#The_advection_equation">
+Advection Operator</a>, \((\mathbf{v} \cdot \nabla)\):
+<div class="LaTexEquation">
+    \[
+    \begin{equation}
+    (\mathbf{v} \cdot \nabla)\mathbf{v} =
+        v_x \frac{\partial \mathbf{v}}{\partial x} +
+        v_y \frac{\partial \mathbf{v}}{\partial y} +
+        v_z \frac{\partial \mathbf{v}}{\partial z}
+    \label{eq:AdvectionOperatorVelocity}
+    \end{equation}
+    \]
+</div>
+Which allows us to describe the fluid acceleration:
+<div class="LaTexEquation">
+    \[
+    \begin{equation}
+    acceleration = (\mathbf{v} \cdot \nabla)\mathbf{v} + 
+        \frac{\partial \mathbf{v}}{\partial t}
+    \label{eq:FluidAcceleration}
+    \end{equation}
+    \]
+</div>
+Substituting \(\eqref{eq:ForceDensityExpanded}\) and
+\(\eqref{eq:FluidAcceleration}\) into \(\eqref{eq:NewtonsSecondLawFluid}\), we
+arrive (finally) at the momentum equation for a fluid:
+<div class="LaTexEquation">
+    \[
+    \begin{equation}
+    \rho (\frac{\partial \mathbf{v}}{\partial t} + 
+            \mathbf{v} \cdot \nabla \mathbf{v}) = 
+            -\nabla p + \mu \nabla^2 \mathbf{v} + \rho \mathbf{g}
+    \label{eq:NavierStokesMomentum}
+    \end{equation}
+    \]
+</div>
+
+state of the fluid is entirely Firstly, we'll describe the 
+conservation of mass for a fluid. 
+at the beginning of the class. Our state will be a vector of 2D arrays, as in the 2D Wave Equation
+example. Each cell will contain a scalar representing the amount of smoke,
+as well as a velocity in the x & y directions. We'll also have a pressure field,
+and we'll require some additional fields to complete the picture.  The solver 
+in its final form will be a solution to the <a href="http://en.wikipedia.org/wiki/Navier-Stokes_equations#Incompressible_flow_of_Newtonian_fluids">Incompressible Navier Stokes Equations</a> in 2D, which can be written as follows:
+<p>
+<div class="LaTexEquation">
+    \[
+    \begin{equation}
+    \rho (\frac{\partial \mathbf{v}}{\partial t} + 
+            \mathbf{v} \cdot \nabla \mathbf{v}) = 
+            -\nabla p + \mu \nabla^2 \mathbf{v} + \mathbf{f}
+    \label{eq:NavierStokesMomentum2}
+    \end{equation}
+    \]\[
+    \begin{equation}
+    \nabla \cdot \mathbf{v} = 0
+    \label{eq:NavierStokesContinuity}
+    \end{equation}
+    \]
+</div>
+The first of these two equations, \(\eqref{eq:NavierStokesMomentum}\) is called 
+the Momentum Equation, and the second, \(\eqref{eq:NavierStokesContinuity}\)
+is called the Continuity Equation. To start with, we'll focus on the first
+part of the momentum equation, \(\frac{\partial \mathbf{v}}{\partial t} + 
+            \mathbf{v} \cdot \nabla \mathbf{v}\), which represents the acceleration
+of the fluid velocity and the motion of the fluid mass through the spatial
+locations represented by the simulation grid cells.  We can temporarily discard
+all the other parts of the momentum equation and just consider the simpler equation:
+<div class="LaTexEquation">
+    \[
+    \begin{equation}
+    \frac{\partial \mathbf{v}}{\partial t} + 
+            \mathbf{v} \cdot \nabla \mathbf{v} = 0
+    \label{eq:Advection}
+    \end{equation}
+    \]
+</div>
+Though smoke and air are not incompressible, we'll treat them as an incompressible
+fluid for the purposes of this exploration, which means the density \(\rho\) is
+constant in the equations. To represent smoke visually, we'll use an "ink density"
+scalar that we advect through the fluid, but otherwise does not affect the physics
+of the simulation.
+
+
+<p>
+<h2>Download</h2>
+All of the files associated with this class are available via a public github repository, found here:
+<a href="https://github.com/blackencino/SimClass">https://github.com/blackencino/SimClass</a>
+
+
+</body>
