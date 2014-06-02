@@ -23,18 +23,18 @@ MathJax.Hub.Config({
 <body>
 <h2>Advection</h2>
 In our <a href="http://encinographic.blogspot.com/2014/05/sim-class-wave-equation-in-2d.html">previous post</a>, we concluded our exploration of iterative matrix methods,
-and the Jacobi method in particular, for solving the 2D wave equation. We'll 
+and the Jacobi method in particular, for solving the 2D wave equation. We'll
 come back to that method a bit later when we explore different applications of
 <a href="http://en.wikipedia.org/wiki/Poisson's_equation">The Poisson Equation</a>.
 <p>
 We've now built up enough machinery to start building the 2D "smoke" solver promised
-at the outset of the class. The system we'd like to model is a fluid in a 
+at the outset of the class. The system we'd like to model is a fluid in a
 rectangular area, with a coloration and impulse that are added via external forces
-(the mouse, in this simple case). The coloration will decay over time, and we 
-will use it to depict smoke, or alternatively it could be interpreted as ink 
+(the mouse, in this simple case). The coloration will decay over time, and we
+will use it to depict smoke, or alternatively it could be interpreted as ink
 in water.
 <p>
-Before concerning ourselves with fluid pressure, incompressibility, viscosity, 
+Before concerning ourselves with fluid pressure, incompressibility, viscosity,
 vorticity, and other nuanced fluid behaviors, we will first turn our attention to
 <a href="http://en.wikipedia.org/wiki/Advection">Advection</a>. Advection is
 just a fancy fluid-dynamics term for "the movement of stuff through a fluid due
@@ -56,7 +56,7 @@ sacrifices sharp details of the fluid and its properties, as we'll demonstrate.
 <h3>Fluid Velocity</h3>
 Firstly, we must consider what
 we're simulating and how to represent it in our State. For a homogeneous,
-incompressible fluid without an interface to a second fluid (called a free surface), 
+incompressible fluid without an interface to a second fluid (called a free surface),
 the main property of the fluid that we are simulating is its velocity. This makes
 intuitive sense -  when we think of "fluidity", we think of smooth, stream-like motion
 that changes in curvy ways over time. (Or at least I do). Velocity is a vector
@@ -66,10 +66,10 @@ Scalar fields will be represented in our State exactly like the 2D scalar "heigh
 property was represented in the previous wave equation example.
 <p>
 Additionally, we'll need a scalar field to represent our coloration, or soot
-amount. Before we even bother with looking at how fluid velocity or the soot 
+amount. Before we even bother with looking at how fluid velocity or the soot
 amount changes over time, we'll first consider how to represent these fields
 in our simulation, and how to visualize them. (Once again returning to our
-main strategy). Let's start with a simple state that's reminiscent of the 
+main strategy). Let's start with a simple state that's reminiscent of the
 previous 2D Wave Equation:
 <p>
 <pre><code>
@@ -94,51 +94,67 @@ like we used with the height field in the previous example. We'll soon see that
 this isn't a good choice, but we need to start somewhere. In previous examples
 we've been writing a small noise fractal inline, but since we'll reuse that
 in multiple places, we'll separate it out into its own function.
-We'll also initialize the soot value to a thresholded fractal.
+We'll also initialize the soot value to hatch pattern of lines, which will be
+easy to see move and deform.
 <p>
 <pre><code>
 float Fractal(float x, float y) {
-  float f = 0.5 * snoise( x * 0.0625, y * 0.0625 ) +
-            0.4 * snoise( x * 0.125, y * 0.125 ) +
-            0.3 * snoise( x * 0.25, y * 0.25 ) +
-            0.2 * snoise( x * 0.5, y * 0.5 );
+  float octave_gain = 0.5;
+  float lacunarity = 1.67;
+  float f = 0.0;
+  float amp = 1.0;
+  float px = x;
+  float py = y;
+  for (int oct = 0; oct < 4; ++oct) {
+    f += amp * snoise(px, py);
+    amp *= octave_gain;
+    px *= lacunarity;
+    py *= lacunarity;
+  }
   return f;
 }
 
-void SetFieldToFractal(int field, 
-    float gain, float bias, 
-    float clip_min, float clip_max,
+void SetFieldToFractal(int field, float gain,
     float offset_x, float offset_y,
-    float spacing_x, float spacing_y) {
+    float pattern_size) {
   noiseSeed( 0 );
-  float d;
+  float spacing = DXY / pattern_size;
   for (int j = 0; j < NY; ++j) {
-    float noise_pos_y = offset_y + spacing_y * (float)j;    
+    float noise_pos_y = offset_y + spacing * float(j);
     for (int i = 0; i < NX; ++i) {
-      float noise_pos_x = offset_x + spacing_x * (float)i;
-      d = (gain * Fractal(noise_pos_x, noise_pos_y)) + bias;
-      d = constrain(d, clip_min, clip_max);
+      float noise_pos_x = offset_x + spacing * float(i);
+      float d = gain * Fractal(noise_pos_x, noise_pos_y);
       State[field][IX(i,j)] = d;
     }
   }
 }
 
-void SetFieldToSimpleFractal(int field, float gain, 
-    float offset_x, float offset_y,
-    float spacing_x, float spacing_y) {
-  SetFieldToSimpleFractal(field, gain, 0.0, -1.0e6, 1.0e6, 
-        offset_x, offset_y, spacing_x, spacing_y);
+// Draws a hatched grid of lines.
+void SetFieldToHatch(int field, int line_width, int cell_width) {
+  for (int j = 0; j < NY; ++j) {
+    int j_line = (j + (line_width/2)) % cell_width;
+    boolean j_in_line = j_line < line_width;
+    for (int i = 0; i < NX; ++i) {
+      int i_line = (i + (line_width/2)) % cell_width;
+      boolean i_in_line = i_line < line_width;
+
+      State[field][IX(i,j)] = i_in_line || j_in_line ? 1.0 : 0.0;
+    }
+  }
 }
 
+float VelocityInitAmplitude = WorldSize * 0.125;
 void SetInitialState() {
-  SetFieldToSimpleFractal(StateVelU, 1.0, 2341.17, 9911.44, DXY, DXY);
-  SetFieldToSimpleFractal(StateVelV, 1.0, -8181.13, -1881.81, DXY, DXY);
-  SetFieldToFractal(StateSoot, 1.0, 0.0, 0.0, 1.0, 11.55, -73.33, DXY, DXY);
+  SetFieldToFractal(StateVelV, VelocityInitAmplitude,
+      2341.17, 9911.44, WorldSize * 0.617);
+  SetFieldToFractal(StateVelU, VelocityInitAmplitude,
+      -8181.13, -1881.81, WorldSize * 0.617);
+  SetFieldToHatch(StateSoot, 2, NX/8);
 }
 </code></pre>
 <p>
 Note that we've removed the boundary conditions temporarily, because they'll
-require a bit of discussion. But, given this initial stab at a fluid velocity
+require a bit of discussion. Given this initial stab at a fluid velocity
 initialization, let's work on drawing it.
 <h3>Visualizing Fluid Velocity and Soot Simultaneously</h3>
 <p>
@@ -147,19 +163,20 @@ Velocity is a vector field - in this case it has two components, U (the velocity
 of the fluid in the x direction) and V (the velocity of the fluid in the y
 direction). It will vary from positive to negative, and so we could try just
 mapping it into the red and green channels of a color image. Then we can use
-the blue channel to display the soot value. Here's what 
-that would look like, genericized slightly to include a range to map the 
-display to.
+the blue channel to display the soot value. Here's what
+that would look like, genericized slightly to include a range to map the
+display to. We've also made some small improvements to the drawing of the label.
 <p>
 <pre><code>
 // Display Gamma
 float DisplayGamma = 2.2;
 
-// Draw vector field into the image. The from_low and from_high 
+// Draw vector field into the image. The from_low and from_high
 // represent the numerical range that will be mapped into the 0-1
 // space of red and green. A display gamma will then be applied.
 void DrawVectorField(int field_r, int field_g, int field_b,
-    color from_low, color from_high) {
+    float from_low_r, float from_low_g, float from_low_b,
+    float from_high_r, float from_high_g, float from_high_b) {
   float r, g, b;
   StateImage.loadPixels();
   for (int j = 0; j < NY; ++j) {
@@ -167,22 +184,22 @@ void DrawVectorField(int field_r, int field_g, int field_b,
       r = field_r < 0 ? 0 : State[field_r][IX(i,j)];
       g = field_g < 0 ? 0 : State[field_g][IX(i,j)];
       b = field_b < 0 ? 0 : State[field_b][IX(i,j)];
-      
+
       // remap.
-      r = (r - red(from_low)) / (red(from_high) - red(from_low));
-      g = (g - green(from_low)) / (green(from_high) - green(from_low));
-      b = (b - blue(from_low)) / (blue(from_high) - blue(from_low));
-      
+      r = (r - from_low_r) / (from_high_r - from_low_r);
+      g = (g - from_low_g) / (from_high_g - from_low_g);
+      b = (b - from_low_b) / (from_high_b - from_low_b);
+
       // constrain.
       r = constrain(r, 0.0, 1.0);
       g = constrain(g, 0.0, 1.0);
       b = constrain(b, 0.0, 1.0);
-      
+
       // display gamma.
       r = pow(r, DisplayGamma);
       g = pow(g, DisplayGamma);
       b = pow(b, DisplayGamma);
-      
+
       // Set
       StateImage.pixels[IX(i,j)] = color(r, g, b);
     }
@@ -192,14 +209,17 @@ void DrawVectorField(int field_r, int field_g, int field_b,
 }
 
 void draw() {
-  // Draw Velocity 
+  // Draw Velocity
   DrawVectorField(StateVelU, StateVelV, StateSoot,
-    color(-1.5, -1.5, 0.0),
-    color(1.5, 1.5, 1.0));
+    -VelocityInitAmplitude, -VelocityInitAmplitude, 0.0,
+    VelocityInitAmplitude, VelocityInitAmplitude, 1.0);
 
   // Label.
-  fill( 1.0 );
-  text("Fluid Velocity & Soot: RGB Display", 10, 30);
+  noStroke();
+  fill(1.0, 1.0, 1.0, 0.75);
+  rect(0.0, 0.0, width, 40.0);
+  fill( 0.0 );
+  text("Fluid Velocity & Soot : RG, B", 10, 30);
 }
 </code></pre>
 <p>
@@ -238,43 +258,57 @@ float snoise( float x, float y ) {
 }
 
 float Fractal(float x, float y) {
-  float f = 0.5 * snoise( x * 0.0625, y * 0.0625 ) +
-            0.4 * snoise( x * 0.125, y * 0.125 ) +
-            0.3 * snoise( x * 0.25, y * 0.25 ) +
-            0.2 * snoise( x * 0.5, y * 0.5 );
+  float octave_gain = 0.5;
+  float lacunarity = 1.67;
+  float f = 0.0;
+  float amp = 1.0;
+  float px = x;
+  float py = y;
+  for (int oct = 0; oct < 4; ++oct) {
+    f += amp * snoise(px, py);
+    amp *= octave_gain;
+    px *= lacunarity;
+    py *= lacunarity;
+  }
   return f;
 }
 
-void SetFieldToFractal(int field, 
-    float gain, float bias, 
-    float clip_min, float clip_max,
+void SetFieldToFractal(int field, float gain,
     float offset_x, float offset_y,
-    float spacing_x, float spacing_y) {
+    float pattern_size) {
   noiseSeed( 0 );
+  float spacing = DXY / pattern_size;
   for (int j = 0; j < NY; ++j) {
-    float noise_pos_y = offset_y + spacing_y * (float)j;    
+    float noise_pos_y = offset_y + spacing * float(j);
     for (int i = 0; i < NX; ++i) {
-      float noise_pos_x = offset_x + spacing_x * (float)i;
-      float d = (gain * Fractal(noise_pos_x, noise_pos_y)) + bias;
-      d = constrain(d, clip_min, clip_max);
+      float noise_pos_x = offset_x + spacing * float(i);
+      float d = gain * Fractal(noise_pos_x, noise_pos_y);
       State[field][IX(i,j)] = d;
     }
   }
 }
 
-void SetFieldToSimpleFractal(int field, float gain, 
-    float offset_x, float offset_y,
-    float spacing_x, float spacing_y) {
-  SetFieldToFractal(field, gain, 0.0, -100000, 100000, 
-        offset_x, offset_y, spacing_x, spacing_y);
+// Draws a hatched grid of lines.
+void SetFieldToHatch(int field, int line_width, int cell_width) {
+  for (int j = 0; j < NY; ++j) {
+    int j_line = (j + (line_width/2)) % cell_width;
+    boolean j_in_line = j_line < line_width;
+    for (int i = 0; i < NX; ++i) {
+      int i_line = (i + (line_width/2)) % cell_width;
+      boolean i_in_line = i_line < line_width;
+
+      State[field][IX(i,j)] = i_in_line || j_in_line ? 1.0 : 0.0;
+    }
+  }
 }
 
+float VelocityInitAmplitude = WorldSize * 0.125;
 void SetInitialState() {
-  SetFieldToSimpleFractal(StateVelV, 1.0, 2341.17, 9911.44, DXY, DXY);
-  SetFieldToSimpleFractal(StateVelU, 1.0, -8181.13, -1881.81, DXY, DXY);
-  // Initialize soot to clipped fractal, with higher frequency.
-  SetFieldToFractal(StateSoot, 5.0, 0.0, 
-      0.0, 1.0, 511.55, -63.33, 2.0 * DXY, 2.0 * DXY);
+  SetFieldToFractal(StateVelV, VelocityInitAmplitude,
+      2341.17, 9911.44, WorldSize * 0.617);
+  SetFieldToFractal(StateVelU, VelocityInitAmplitude,
+      -8181.13, -1881.81, WorldSize * 0.617);
+  SetFieldToHatch(StateSoot, 2, NX/8);
 }
 
 void setup() {
@@ -289,7 +323,7 @@ void setup() {
 // Display Gamma
 float DisplayGamma = 2.2;
 
-// Draw vector field into the image. The from_low and from_high 
+// Draw vector field into the image. The from_low and from_high
 // represent the numerical range that will be mapped into the 0-1
 // space of red and green. A display gamma will then be applied.
 void DrawVectorField(int field_r, int field_g, int field_b,
@@ -302,22 +336,22 @@ void DrawVectorField(int field_r, int field_g, int field_b,
       r = field_r < 0 ? 0 : State[field_r][IX(i,j)];
       g = field_g < 0 ? 0 : State[field_g][IX(i,j)];
       b = field_b < 0 ? 0 : State[field_b][IX(i,j)];
-      
+
       // remap.
       r = (r - from_low_r) / (from_high_r - from_low_r);
       g = (g - from_low_g) / (from_high_g - from_low_g);
       b = (b - from_low_b) / (from_high_b - from_low_b);
-      
+
       // constrain.
       r = constrain(r, 0.0, 1.0);
       g = constrain(g, 0.0, 1.0);
       b = constrain(b, 0.0, 1.0);
-      
+
       // display gamma.
       r = pow(r, DisplayGamma);
       g = pow(g, DisplayGamma);
       b = pow(b, DisplayGamma);
-      
+
       // Set
       StateImage.pixels[IX(i,j)] = color(r, g, b);
     }
@@ -327,66 +361,100 @@ void DrawVectorField(int field_r, int field_g, int field_b,
 }
 
 void draw() {
-  // Draw Velocity 
+  // Draw Velocity
   DrawVectorField(StateVelU, StateVelV, StateSoot,
-    -1.5, -1.5, 0.0,
-    1.5, 1.5, 1.0);
+    -VelocityInitAmplitude, -VelocityInitAmplitude, 0.0,
+    VelocityInitAmplitude, VelocityInitAmplitude, 1.0);
 
   // Label.
-  fill( 1.0 );
-  text("Fluid Velocity & Soot: RGB Display", 10, 30);
+  noStroke();
+  fill(1.0, 1.0, 1.0, 0.75);
+  rect(0.0, 0.0, width, 40.0);
+  fill( 0.0 );
+  text("Fluid Velocity & Soot : RG, B", 10, 30);
 }
 </script>
 <canvas id="pjsFluidVelocitySootRGB"> </canvas>
 <p>
 Hmmm. That's not very easy to interpret, visually. If you work with fluid solvers
 frequently, you can develop an ability to look at velocity in this way, but it's
-always non-intuitive.  Instead, let's try drawing line segments to show the
+always non-intuitive. Plus, the simultaneous display of velocity and soot is
+very visually confusing. Instead, let's try drawing line segments to show the
 direction of the fluid at each point. This is easy to do using the "LINES" shape
 tools in Processing. We'll create a line starting at each cell and pointing in
 the direction of the velocity, with the line lengths proportional to the velocity
 magnitude, scaled by an arbitrary constant for ease of comprehension. In code,
 <p>
 <pre><code>
-// Draw vector field as line segments. We can optionally skip
+// Draw velocity as line segments. We can optionally skip
 // some of the points, and we can scale the length of the vectors
 // accordingly.
-void DrawVectorFieldAsLines(int field_u, int field_v,
+void DrawVelocityAsLines(int U, int V,
     int step_u, int step_v,
-    float gain_u, float gain_v) {
-  float u, v;
+    float dt) {
   beginShape(LINES);
   for (int j = step_v / 2; j < NY; j += step_v) {
-    float start_y = PixelsPerCell * (float)j;
+    float pixel_start_y = PixelsPerCell * float(j);
     for (int i = step_u / 2; i < NX; i += step_u) {
-      float start_x = PixelsPerCell * (float)i;
-      
-      u = gain_u * State[field_u][IX(i,j)];
-      v = gain_v * State[field_v][IX(i,j)];
-      
-      float end_x = start_x + PixelsPerCell * u;
-      float end_y = start_y + PixelsPerCell * v;
-      vertex(start_x, start_y);
-      vertex(end_x, end_y);
+      float pixel_start_x = PixelsPerCell * float(i);
+
+      float vel_u = State[U][IX(i,j)];
+      float vel_v = State[V][IX(i,j)];
+      float pixel_vel_u = PixelsPerCell * State[U][IX(i,j)] / DXY;
+      float pixel_vel_v = PixelsPerCell * State[V][IX(i,j)] / DXY;
+
+      float pixel_end_x = pixel_start_x + (dt * pixel_vel_u);
+      float pixel_end_y = pixel_start_y + (dt * pixel_vel_v);
+      vertex(pixel_start_x, pixel_start_y);
+      vertex(pixel_end_x, pixel_end_y);
     }
   }
   endShape();
 }
 
+void DrawScalarField(int field,
+    float from_low, float from_high, float exponent,
+    color color_low, color color_high) {
+  float d;
+  StateImage.loadPixels();
+  for (int j = 0; j < NY; ++j) {
+    for (int i = 0; i < NX; ++i) {
+      d = State[field][IX(i,j)];
+
+      d = (d - from_low)/(from_high - from_low);
+      d = constrain(d, 0.0, 1.0);
+      d = pow(d, exponent);
+
+      StateImage.pixels[IX(i,j)] = lerpColor(color_low, color_high, d);
+    }
+  }
+  StateImage.updatePixels();
+  image(StateImage, 0, 0, width, height);
+}
+
 void draw() {
   background(0.5);
+
+  // Draw soot as a purplish smoke.
+  color soot_zero = color(1.0, 1.0, 1.0);
+  color soot_one = color(0.3, 0.0, 0.3);
+  DrawScalarField(StateSoot, 0.0, 1.0, 3.0, soot_zero, soot_one);
+
   // Draw Velocity as lines
   // Length gain is somewhat arbitrary.
-  float gain = 40.0 * (1.0 / 24.0) / DXY;
-  stroke(0.6, 0.2, 0.1);
-  DrawVectorFieldAsLines(StateVelU, StateVelV, 2, 2, gain, gain);
+  float dt = (1.0 / 24.0);
+  stroke(1.0, 0.1, 0.1);
+  DrawVelocityAsLines(StateVelU, StateVelV, 2, 2, 10.0 * dt);
 
   // Label.
-  fill( 1.0 );
-  text("Fluid Velocity : Velocity Lines", 10, 30);
+  noStroke();
+  fill(1.0, 1.0, 1.0, 0.75);
+  rect(0.0, 0.0, width, 40.0);
+  fill( 0.0 );
+  text("Fluid Velocity & Soot : Lines, RGB", 10, 30);
 }
 </code></pre>
-<p> 
+<p>
 Let's see what that looks like in Processing:
 <p>
 <script type="application/processing" data-processing-target="pjsFluidVelocityLines">
@@ -399,10 +467,11 @@ float DXY = WorldSize / NX;
 float LX = WorldSize;
 float LY = WorldSize;
 
-int StateSize = 2;
+int StateSize = 3;
 float[][] State = new float[StateSize][ArraySize];
 int StateVelU = 0;
 int StateVelV = 1;
+int StateSoot = 2;
 
 float StateCurrentTime = 0.0;
 
@@ -427,79 +496,65 @@ float snoise( float x, float y ) {
    return ( 2.0 * noise( x, y )) - 1.0;
 }
 
-void EnforceDirichletBoundaryConditions( int io_a ) {
-    for (int j = 0; j < NY; ++j) {
-        if (j == 0 || j == (NY-1)) {
-            for (int i = 0; i < NX; ++i) {
-                State[io_a][IX(i,j)] = 0.0;
-            }
-        } else {
-            State[io_a][IX(0,j)] = 0.0;
-            State[io_a][IX(NX-1,j)] = 0.0;
-        }
-    }
-}
-
-void EnforceNeumannBoundaryConditions( int io_v ) {
-    for (int j = 0; j < NY; ++j) {
-        if (j == 0) {
-            for (int i = 0; i < NX; ++i) {
-                State[io_v][IX(i,0)] = State[io_v][IX(i,1)];
-            }
-        } else if (j == (NY-1)) {
-            for (int i = 0; i < NX; ++i) {
-                State[io_v][IX(i,NY-1)] = State[io_v][IX(i,NY-2)];
-            }
-        }
-
-        State[io_v][IX(0,j)] = State[io_v][IX(1,j)];
-        State[io_v][IX(NX-1,j)] = State[io_v][IX(NX-2,j)];
-    }
-}
-
-void CopyArray( int i_src, int o_dst ) {
-    for ( int i = 0; i < ArraySize; ++i ) {
-        State[o_dst][i] = State[i_src][i];
-    }
-}
-
-void FillArray( int o_a, float i_val ) {
-    for ( int i = 0; i < ArraySize; ++i ) {
-        State[o_a][i] = i_val;
-    }
-}
-
 float Fractal(float x, float y) {
-  float f = 0.5 * snoise( x * 0.0625, y * 0.0625 ) +
-            0.4 * snoise( x * 0.125, y * 0.125 ) +
-            0.3 * snoise( x * 0.25, y * 0.25 ) +
-            0.2 * snoise( x * 0.5, y * 0.5 );
+  float octave_gain = 0.5;
+  float lacunarity = 1.67;
+  float f = 0.0;
+  float amp = 1.0;
+  float px = x;
+  float py = y;
+  for (int oct = 0; oct < 4; ++oct) {
+    f += amp * snoise(px, py);
+    amp *= octave_gain;
+    px *= lacunarity;
+    py *= lacunarity;
+  }
   return f;
 }
 
-void SetFieldToFractal(int field, float gain, 
+void SetFieldToFractal(int field, float gain,
     float offset_x, float offset_y,
-    float spacing_x, float spacing_y) {
+    float pattern_size) {
   noiseSeed( 0 );
+  float spacing = DXY / pattern_size;
   for (int j = 0; j < NY; ++j) {
-    float noise_pos_y = offset_y + spacing_y * (float)j;    
+    float noise_pos_y = offset_y + spacing * float(j);
     for (int i = 0; i < NX; ++i) {
-      float noise_pos_x = offset_x + spacing_x * (float)i;
-      State[field][IX(i,j)] = gain * Fractal(noise_pos_x, noise_pos_y);
+      float noise_pos_x = offset_x + spacing * float(i);
+      float d = gain * Fractal(noise_pos_x, noise_pos_y);
+      State[field][IX(i,j)] = d;
     }
   }
 }
 
+// Draws a hatched grid of lines.
+void SetFieldToHatch(int field, int line_width, int cell_width) {
+  for (int j = 0; j < NY; ++j) {
+    int j_line = (j + (line_width/2)) % cell_width;
+    boolean j_in_line = j_line < line_width;
+    for (int i = 0; i < NX; ++i) {
+      int i_line = (i + (line_width/2)) % cell_width;
+      boolean i_in_line = i_line < line_width;
+
+      State[field][IX(i,j)] = i_in_line || j_in_line ? 1.0 : 0.0;
+    }
+  }
+}
+
+float VelocityInitAmplitude = WorldSize * 0.125;
 void SetInitialState() {
-  SetFieldToFractal(StateVelU, 1.0, 2341.17, 9911.44, DXY, DXY);
-  SetFieldToFractal(StateVelV, 1.0, -8181.13, -1881.81, DXY, DXY);
+  SetFieldToFractal(StateVelV, VelocityInitAmplitude,
+      2341.17, 9911.44, WorldSize * 0.617);
+  SetFieldToFractal(StateVelU, VelocityInitAmplitude,
+      -8181.13, -1881.81, WorldSize * 0.617);
+  SetFieldToHatch(StateSoot, 2, NX/8);
 }
 
 void setup() {
     SetInitialState();
     size(WindowWidth, WindowHeight);
     colorMode(RGB, 1.0);
-    strokeWeight(0.5);
+    strokeWeight(1.0);
     textSize(24);
     noLoop();
 }
@@ -507,289 +562,879 @@ void setup() {
 // Display Gamma
 float DisplayGamma = 2.2;
 
-// Draw vector field into the image. The from_low and from_high 
-// represent the numerical range that will be mapped into the 0-1
-// space of red and green. A display gamma will then be applied.
-void DrawVectorField(int field_u, int field_v, 
-    float from_low_u, float from_high_u,
-    float from_low_v, float from_high_v) {
-  float u, v;
+// Draw velocity as line segments. We can optionally skip
+// some of the points, and we can scale the length of the vectors
+// accordingly.
+void DrawVelocityAsLines(int U, int V,
+    int step_u, int step_v,
+    float dt) {
+  beginShape(LINES);
+  for (int j = step_v / 2; j < NY; j += step_v) {
+    float pixel_start_y = PixelsPerCell * float(j);
+    for (int i = step_u / 2; i < NX; i += step_u) {
+      float pixel_start_x = PixelsPerCell * float(i);
+
+      float vel_u = State[U][IX(i,j)];
+      float vel_v = State[V][IX(i,j)];
+      float pixel_vel_u = PixelsPerCell * State[U][IX(i,j)] / DXY;
+      float pixel_vel_v = PixelsPerCell * State[V][IX(i,j)] / DXY;
+
+      float pixel_end_x = pixel_start_x + (dt * pixel_vel_u);
+      float pixel_end_y = pixel_start_y + (dt * pixel_vel_v);
+      vertex(pixel_start_x, pixel_start_y);
+      vertex(pixel_end_x, pixel_end_y);
+    }
+  }
+  endShape();
+}
+
+void DrawScalarField(int field,
+    float from_low, float from_high, float exponent,
+    color color_low, color color_high) {
+  float d;
   StateImage.loadPixels();
   for (int j = 0; j < NY; ++j) {
     for (int i = 0; i < NX; ++i) {
-      u = State[field_u][IX(i,j)];
-      v = State[field_v][IX(i,j)];
-      
-      // remap.
-      u = (u - from_low_u) / (from_high_u - from_low_u);
-      v = (v - from_low_v) / (from_high_v - from_low_v);
-      
-      // constrain.
-      u = constrain(u, 0.0, 1.0);
-      v = constrain(v, 0.0, 1.0);
-      
-      // display gamma.
-      u = pow(u, DisplayGamma);
-      v = pow(v, DisplayGamma);
-      
-      // Set
-      StateImage.pixels[IX(i,j)] = color(u, v, 0.0);
+      d = State[field][IX(i,j)];
+
+      d = (d - from_low)/(from_high - from_low);
+      d = constrain(d, 0.0, 1.0);
+      d = pow(d, exponent);
+
+      StateImage.pixels[IX(i,j)] = lerpColor(color_low, color_high, d);
     }
   }
   StateImage.updatePixels();
   image(StateImage, 0, 0, width, height);
 }
 
-// Draw vector field as line segments. We can optionally skip
+void draw() {
+  background(0.5);
+
+  // Draw soot as a purplish smoke.
+  color soot_zero = color(1.0, 1.0, 1.0);
+  color soot_one = color(0.3, 0.0, 0.3);
+  DrawScalarField(StateSoot, 0.0, 1.0, 3.0, soot_zero, soot_one);
+
+  // Draw Velocity as lines
+  // Length gain is somewhat arbitrary.
+  float dt = (1.0 / 24.0);
+  stroke(1.0, 0.1, 0.1);
+  DrawVelocityAsLines(StateVelU, StateVelV, 2, 2, 10.0 * dt);
+
+  // Label.
+  noStroke();
+  fill(1.0, 1.0, 1.0, 0.75);
+  rect(0.0, 0.0, width, 40.0);
+  fill( 0.0 );
+  text("Fluid Velocity & Soot : Lines, RGB", 10, 30);
+}
+</script>
+<canvas id="pjsFluidVelocityLines"> </canvas>
+<p>
+That's so much easier to grok! The length scale of the lines is somewhat
+arbitrary, and can be adjusted on an application-specific basis, or tied to a
+hotkey. Excellent! Now that we've created a velocity field in our State, and
+seen how to visualize it, it's time to consider our equations of motion.
+<p>
+<h2>The Advection Equation</h2>
+Ignoring the other aspects of the fluid and just focusing on bulk motion due
+to velocity, we'll begin with
+<a href="http://en.wikipedia.org/wiki/Advection#The_advection_equation">The
+Advection Equation</a>. This
+describes how any scalar field, represented by \(\phi\), is changed over time
+due just to advection by a velocity field \(\mathbf{v}\). The full equation is
+written in 2D as:
+<div class="LaTexEquation">
+    \[
+    \begin{equation}
+    \frac{\partial \phi}{\partial t} +
+    v_x \frac{\partial \phi}{\partial x} +
+    v_y \frac{\partial \phi}{\partial y} = 0
+    \label{eq:AdvectionEquationPhi}
+    \end{equation}
+    \]
+</div>
+It is common to use a shorthand notation for the spatial part of
+\(\eqref{eq:AdvectionEquationPhi}\), called The Advection Operator:
+<div class="LaTexEquation">
+    \[
+    \begin{equation}
+    (\mathbf{v} \cdot \nabla)\phi \equiv
+    v_x \frac{\partial \phi}{\partial x} +
+    v_y \frac{\partial \phi}{\partial y}
+    \label{eq:AdvectionOperator}
+    \end{equation}
+    \]
+</div>
+With this notation, the Advection Equation becomes:
+<div class="LaTexEquation">
+    \[
+    \begin{equation}
+    \frac{\partial \phi}{\partial t} + (\mathbf{v} \cdot \nabla)\phi = 0
+    \label{eq:AdvectionEquationConcisePhi}
+    \end{equation}
+    \]
+</div>
+This is a difficult equation to solve, and there is a tremendous amount of
+research and discussion of different ways to solve it. Rather than explore
+the instabilities of some more obvious choices, we'll jump right to the
+discussion of a popular, stable method.
+<p>
+<h2>Semi-Lagrangian Advection</h2>
+<a href="http://en.wikipedia.org/wiki/Semi-Lagrangian_scheme">
+Semi-Lagrangian Advection</a> uses a technique known as the <i>method of
+characteristics</i> to provide an unconditionally stable solution to the
+advection equation. How it works is fairly simple. Given a velocity field,
+for each location in the field representing the advected quantity to be solved,
+"Q new", we look up the velocity at that location in the field. We use the
+velocity to construct a flowline from our position backwards in time, and
+interpolate the advected quantity, "Q old", from that location.
+<p>
+<img src="https://wiki.engr.illinois.edu/download/attachments/169574591/semi-lagrangian.jpg"/>
+<p>
+The above image is from Jos Stam's incredible paper,
+<a href="http://www.autodeskresearch.com/pdf/ns.pdf">Stable Fluids</a>, which
+this course borrows liberally from. Implementing that paper was how I first
+started to learn about the fluid simulation ideas that I'm focused on in this
+class.
+<p>
+<h3>Implementation</h3>
+The good news is that implementing Semi-Lagrangian Advection of a scalar field
+is fairly simple. We will need a way to bi-linearly resample our 2D arrays,
+which is straightforward to code:
+<p>
+<pre><code>
+// Bi-Linear Resampling of a field Q at some point fi, fj
+float BiLinearResample(int Q, float fi, float fj) {
+  int i_lo = floor(fi);
+  float s = fi - float(i_lo);
+  i_lo = constrain(i_lo, 0, NX-1);
+  int i_hi = min(i_lo + 1, NX-1);
+
+  int j_lo = floor(fj);
+  float t = fj - float(j_lo);
+  j_lo = constrain(j_lo, 0, NY-1);
+  int j_hi = min(j_lo + 1, NY-1);
+
+  float q00 = State[Q][IX(i_lo,j_lo)];
+  float q10 = State[Q][IX(i_hi,j_lo)];
+  float q01 = State[Q][IX(i_lo,j_hi)];
+  float q11 = State[Q][IX(i_hi,j_hi)];
+  return lerp(lerp(q00, q10, s), lerp(q01, q11, s), t);
+}
+</code></pre>
+The above code handles the boundary conditions of the four walls (edges) of our
+simulation by clamping indices. If we did have additional internal boundary
+conditions, such as solid collision regions, we'd have to take more care in
+resampling the fields, something we'll look into in later classes. But for now,
+the above works great.
+<p>
+At first, we're just going to advect the Soot field by the velocity field, which
+means we'll be computing a StateSoot from a StatePrevSoot. We already have some
+Copy & Fill tools from the Wave Equation 2D example, so we'll just need to add
+an extra field to the State and implement a SwapSoot function. Here are those
+changes:
+<p>
+<pre><code>
+int StateSize = 4;
+float[][] State = new float[StateSize][ArraySize];
+int StateVelU = 0;
+int StateVelV = 1;
+int StateSoot = 2;
+int StatePrevSoot = 3;
+
+...
+
+void SetInitialState() {
+  ...
+  SetFieldToHatch(StateSoot, 2, NX/8);
+  CopyField(StateSoot, StatePrevSoot);
+}
+
+...
+
+void SwapSoot() {
+  int tmp = StateSootPrev;
+  StateSootPrev = StateSoot;
+  StateSoot = tmp;
+}
+</code></pre>
+<p>
+A first-order implementation of Semi-Lagrangian Advection is then quite
+straightforward. At each point, we look up the velocity. We convert the velocity
+into cell-space, and look backwards along that velocity from the position we're
+considering by the timestep dt. At this new location, we bilinearly resample
+the previous field to produce the new, advected field value. In code:
+<p>
+<pre><code>
+// Semi-Lagrangian Advection of Q by U & V
+void SemiLagrangianAdvectFirstOrder(int NEW_Q, int OLD_Q,
+    int U, int V, float dt) {
+  for (int j = 0; j < NY; ++j) {
+    for (int i = 0; i < NX; ++i) {
+      // velocity in cell space
+      float cell_vel_u = State[U][IX(i,j)] / DXY;
+      float cell_vel_v = State[V][IX(i,j)] / DXY;
+
+      // Move point backwards in time by dt
+      float fi = float(i) - dt * cell_vel_u;
+      float fj = float(j) - dt * cell_vel_v;
+
+      State[NEW_Q][IX(i,j)] = BiLinearResample(OLD_Q, fi, fj);
+    }
+  }
+}
+</code></pre>
+<p>
+Now, all we need is a time step that advects the soot and swaps the soot fields,
+and we are done! Here's that, with the corresponding addition to the "draw"
+function.  Note that I've been adding "noLoop" to the setup functions of the
+static sims so far, to improve performance. Just make sure that, if you've added
+the noLoop() function, you remove it once you turn on these dynamics.
+<p>
+<pre><code>
+void TimeStep(float dt) {
+  SwapSoot();
+  SemiLagrangianAdvect(StateSoot, StateSootPrev,
+      StateVelU, StateVelV, dt);
+}
+...
+void draw() {
+  TimeStep(1.0/24.0);
+  ...
+}
+</code></pre>
+<p>
+I also like having the reset capability, which just flashes things back to
+the initial state, bound to the 'r' key. Here's code which adds that:
+<p>
+<pre><code>
+// Reset function. If the key 'r' is released in the display,
+// copy the initial state to the state.
+void keyReleased() {
+    if ( key == 114 ) {
+        SetInitialState();
+    }
+}
+</code></pre>
+<p>
+That's it! Let's see how it looks in Processing:
+(Hit 'r' to reset)
+<p>
+<script type="application/processing"
+    data-processing-target="pjsSemiLagrangianAdvectionSootOnly">
+float WorldSize = 10.0;
+int NX = 64;
+int NY = 64;
+int ArraySize = NX * NY;
+float DXY = WorldSize / NX;
+
+float LX = WorldSize;
+float LY = WorldSize;
+
+int StateSize = 4;
+float[][] State = new float[StateSize][ArraySize];
+int StateVelU = 0;
+int StateVelV = 1;
+int StateSoot = 2;
+int StatePrevSoot = 3;
+
+float StateCurrentTime = 0.0;
+int TotalTimeSteps = 0;
+
+int PixelsPerCell = 8;
+
+int WindowWidth = PixelsPerCell * NX;
+int WindowHeight = PixelsPerCell * NY;
+
+boolean InputActive = false;
+int InputIndexX = 0;
+int InputIndexY = 0;
+float InputHeight = 0;
+
+PImage StateImage = createImage( NX, NY, RGB );
+
+// Index an element of a grid in the state array
+int IX( int i, int j ) {
+    return ( i + NX*j );
+}
+
+float snoise( float x, float y ) {
+   return ( 2.0 * noise( x, y )) - 1.0;
+}
+
+float Fractal(float x, float y) {
+  float octave_gain = 0.5;
+  float lacunarity = 1.67;
+  float f = 0.0;
+  float amp = 1.0;
+  float px = x;
+  float py = y;
+  for (int oct = 0; oct < 4; ++oct) {
+    f += amp * snoise(px, py);
+    amp *= octave_gain;
+    px *= lacunarity;
+    py *= lacunarity;
+  }
+  return f;
+}
+
+void SetFieldToFractal(int field, float gain,
+    float offset_x, float offset_y,
+    float pattern_size) {
+  noiseSeed( 0 );
+  float spacing = DXY / pattern_size;
+  for (int j = 0; j < NY; ++j) {
+    float noise_pos_y = offset_y + spacing * float(j);
+    for (int i = 0; i < NX; ++i) {
+      float noise_pos_x = offset_x + spacing * float(i);
+      float d = gain * Fractal(noise_pos_x, noise_pos_y);
+      State[field][IX(i,j)] = d;
+    }
+  }
+}
+
+// Draws a hatched grid of lines.
+void SetFieldToHatch(int field, int line_width, int cell_width) {
+  for (int j = 0; j < NY; ++j) {
+    int j_line = (j + (line_width/2)) % cell_width;
+    boolean j_in_line = j_line < line_width;
+    for (int i = 0; i < NX; ++i) {
+      int i_line = (i + (line_width/2)) % cell_width;
+      boolean i_in_line = i_line < line_width;
+
+      State[field][IX(i,j)] = i_in_line || j_in_line ? 1.0 : 0.0;
+    }
+  }
+}
+
+void CopyField(int src, int dst) {
+  for (int i = 0; i < ArraySize; ++i) {
+    State[dst][i] = State[src][i];
+  }
+}
+
+void FillField(int field, float value) {
+  for (int i = 0; i < ArraySize; ++i) {
+    State[field][i] = value;
+  }
+}
+
+float VelocityInitAmplitude = WorldSize * 0.125;
+void SetInitialState() {
+  TotalTimeSteps = 0;
+  StateCurrentTime = 0.0;
+  SetFieldToFractal(StateVelV, VelocityInitAmplitude,
+      2341.17, 9911.44, WorldSize * 0.617);
+  SetFieldToFractal(StateVelU, VelocityInitAmplitude,
+      -8181.13, -1881.81, WorldSize * 0.617);
+  SetFieldToHatch(StateSoot, 2, NX/8);
+  CopyField(StateSoot, StatePrevSoot);
+
+  // Turn on looping, which may have been turned off.
+  loop();
+}
+
+void setup() {
+    SetInitialState();
+    size(WindowWidth, WindowHeight);
+    colorMode(RGB, 1.0);
+    strokeWeight(1.0);
+    textSize(24);
+}
+
+void SwapSoot() {
+  int tmp = StatePrevSoot;
+  StatePrevSoot = StateSoot;
+  StateSoot = tmp;
+}
+
+// Bi-Linear Resampling of a field Q at some point fi, fj
+float BiLinearResample(int Q, float fi, float fj) {
+  int i_lo = floor(fi);
+  float s = fi - float(i_lo);
+  i_lo = constrain(i_lo, 0, NX-1);
+  int i_hi = min(i_lo + 1, NX-1);
+
+  int j_lo = floor(fj);
+  float t = fj - float(j_lo);
+  j_lo = constrain(j_lo, 0, NY-1);
+  int j_hi = min(j_lo + 1, NY-1);
+
+  float q00 = State[Q][IX(i_lo,j_lo)];
+  float q10 = State[Q][IX(i_hi,j_lo)];
+  float q01 = State[Q][IX(i_lo,j_hi)];
+  float q11 = State[Q][IX(i_hi,j_hi)];
+  return lerp(lerp(q00, q10, s), lerp(q01, q11, s), t);
+}
+
+// Semi-Lagrangian Advection of Q by U & V
+void SemiLagrangianAdvect(int new_Q, int old_Q, int U, int V, float dt) {
+  for (int j = 0; j < NY; ++j) {
+    for (int i = 0; i < NX; ++i) {
+      float vel_u = State[U][IX(i,j)];
+      float vel_v = State[V][IX(i,j)];
+
+      float cell_vel_u = vel_u / DXY;
+      float cell_vel_v = vel_v / DXY;
+
+      float fi = float(i) - (dt * cell_vel_u);
+      float fj = float(j) - (dt * cell_vel_v);
+
+      State[new_Q][IX(i,j)] = BiLinearResample(old_Q, fi, fj);
+    }
+  }
+}
+
+void TimeStep(float dt) {
+  ++TotalTimeSteps;
+  StateCurrentTime += dt;
+  SwapSoot();
+  SemiLagrangianAdvect(StateSoot, StatePrevSoot,
+      StateVelU, StateVelV, dt);
+}
+
+// Display Gamma
+float DisplayGamma = 2.2;
+
+// Draw velocity as line segments. We can optionally skip
 // some of the points, and we can scale the length of the vectors
 // accordingly.
-void DrawVectorFieldAsLines(int field_u, int field_v,
+void DrawVelocityAsLines(int U, int V,
     int step_u, int step_v,
-    float gain_u, float gain_v) {
-  float u, v;
+    float dt) {
   beginShape(LINES);
   for (int j = step_v / 2; j < NY; j += step_v) {
-    float start_y = PixelsPerCell * (float)j;
+    float pixel_start_y = PixelsPerCell * float(j);
     for (int i = step_u / 2; i < NX; i += step_u) {
-      float start_x = PixelsPerCell * (float)i;
-      
-      u = gain_u * State[field_u][IX(i,j)];
-      v = gain_v * State[field_v][IX(i,j)];
-      
-      float end_x = start_x + PixelsPerCell * u;
-      float end_y = start_y + PixelsPerCell * v;
-      vertex(start_x, start_y);
-      vertex(end_x, end_y);
+      float pixel_start_x = PixelsPerCell * float(i);
+
+      float vel_u = State[U][IX(i,j)];
+      float vel_v = State[V][IX(i,j)];
+      float pixel_vel_u = PixelsPerCell * State[U][IX(i,j)] / DXY;
+      float pixel_vel_v = PixelsPerCell * State[V][IX(i,j)] / DXY;
+
+      float pixel_end_x = pixel_start_x + (dt * pixel_vel_u);
+      float pixel_end_y = pixel_start_y + (dt * pixel_vel_v);
+      vertex(pixel_start_x, pixel_start_y);
+      vertex(pixel_end_x, pixel_end_y);
     }
   }
   endShape();
 }
 
+void DrawScalarField(int field,
+    float from_low, float from_high, float exponent,
+    color color_low, color color_high) {
+  float d;
+  StateImage.loadPixels();
+  for (int j = 0; j < NY; ++j) {
+    for (int i = 0; i < NX; ++i) {
+      d = State[field][IX(i,j)];
+
+      d = (d - from_low)/(from_high - from_low);
+      d = constrain(d, 0.0, 1.0);
+      d = pow(d, exponent);
+
+      StateImage.pixels[IX(i,j)] = lerpColor(color_low, color_high, d);
+    }
+  }
+  StateImage.updatePixels();
+  image(StateImage, 0, 0, width, height);
+}
+
 void draw() {
+  TimeStep(1.0/24.0);
+  // Turn off looping after a certain number of steps,
+  // to save performance.
+  if (TotalTimeSteps > 1000) {
+    noLoop();
+  }
+
   background(0.5);
+  // Draw soot.
+  color soot_high = color(0.3, 0.0, 0.3);
+  color soot_low = color(1.0, 1.0, 1.0);
+  DrawScalarField(StateSoot, 0.0, 1.0, 3.0, soot_low, soot_high);
+
   // Draw Velocity as lines
   // Length gain is somewhat arbitrary.
-  float gain = 40.0 * (1.0 / 24.0) / DXY;
-  stroke(0.6, 0.2, 0.1);
-  DrawVectorFieldAsLines(StateVelU, StateVelV, 2, 2, gain, gain);
+  float dt = (1.0 / 24.0);
+  stroke(1.0, 0.1, 0.1);
+  DrawVelocityAsLines(StateVelU, StateVelV, 2, 2, 10.0 * dt);
 
   // Label.
-  fill( 1.0 );
-  text("Fluid Velocity : Velocity Lines", 10, 30);
+  noStroke();
+  fill(1.0, 1.0, 1.0, 0.75);
+  rect(0.0, 0.0, width, 40.0);
+  fill( 0.0 );
+  text("Semi-Lagrangian Advection, Soot Only", 10, 30);
+}
+
+// Reset function. If the key 'r' is released in the display,
+// copy the initial state to the state.
+void keyReleased() {
+    if ( key == 114 ) {
+        SetInitialState();
+    }
 }
 </script>
-<canvas id="pjsFluidVelocityLines"> </canvas>
+<canvas id="pjsSemiLagrangianAdvectionSootOnly"> </canvas>
+
 <p>
-That's so much easier to grok! The length scale of the lines is somewhat 
-arbitrary, and can be adjusted on an application-specific basis, or tied to a
-hotkey. Excellent! Now that we've created a velocity field in our State, and
-seen how to visualize it, it's time to consider our equations of motion.
-
-
-
-
-
-Though air and smoke are compressible, and have 
-variable density, we'll model our fluid as an incompressible fluid for simplicity.
-This gives us our first equation of state, that density, written using the greek
-letter \(\rho\), is constant, and we'll simplify life by just setting it equal
-to 1.
+<h2>Advection of Velocity by Velocity</h2>
+It's not just the soot that's advected by the velocity of the fluid, though.
+The fluid mass itself is moving, and so we have to advect the velocity by
+itself! In equation form, the self advection of the velocity by itself looks
+like this:
 <div class="LaTexEquation">
     \[
     \begin{equation}
-    \rho = constant = 1
-    \label{eq:ConstantDensity}
+    (\mathbf{v} \cdot \nabla) \mathbf{v} = 0
+    \label{eq:SelfAdvection}
     \end{equation}
     \]
 </div>
+I always found this mildly paradoxical, but fortunately it's easy to do!
+We'll need Prev versions of the velocity in the State:
 <p>
-<h2>Fluid Equations of Motion</h2>
-To derive the equations of motion for a fluid, we'll follow the steps described
-by <a href="http://en.wikipedia.org/wiki/Richard_Feynman">Richard Feynman</a> in
-the classic <a href="http://www.feynmanlectures.info/">Feynman Lectures on Physics</a>,
-Book II, Chapter 40 ("The Flow of Dry Water"). 
-<h3>Fluid Velocity</h3>
-Firstly, we must consider what
-we're simulating and how to represent it in our State. For a homogeneous,
-incompressible fluid without an interface to a second fluid (called a free surface), 
-the main property of the fluid that we are simulating is its velocity. This makes intuitive sense -  when we think of "fluidity", we think of smooth, stream-like motion that changes in curvy ways over time. (Or at least I do). 
-So, let's start with a simple state that's reminiscent of the previous 
-2D Wave Equation:
+<pre><code>
+int StateSize = 6;
+float[][] State = new float[StateSize][ArraySize];
+int StateVelU = 0;
+int StatePrevVelU = 1;
+int StateVelV = 2;
+int StatePrevVelV = 3;
+int StateSoot = 4;
+int StatePrevSoot = 5;
+</code></pre>
 <p>
-The equations of motion for an incompressible fluid (ignoring temperature and 
-magnetic effects) say, simply, "Mass and Momentum are Conserved". We'll do 
-a little bit of derivation here, just to understand the nature of the terms, but
-our primary concern is in translating the equations into a simulation engine, and
-there are ample resources for working through these derivations on your own.
-Let's look first at the "Momentum Is Conserved" part. 
-<h3>Hydrodynamic Equation of Motion</h3>
-Newton's second law says that mass times acceleration is equal to force. For a 
-fluid, let us consider a fixed volume of the space which the fluid occupies - in 
-our case, each "cell" of our 2D array (or grid) represents a small square with
-a fixed area - or in 3D, a volume. Let \(\mathbf{f}\) represent the 
-<i>force density</i>, that is, the force per unit volume, a continuously varying 
-field in space and time. Density, \(\rho\), is defined as the mass per unit 
-volume, so we can derive Newton's second law for fluids as:
-<div class="LaTexEquation">
-    \[
-    \begin{eqnarray}
-    mass \times (acceleration) &=& force \label{eq:NewtonsSecondLaw} \\
-    mass &=& \rho \times volume \label{eq:DensityDefinition} \\
-    force &=& \mathbf{f} \times volume \label{eq:ForceDensityDefinition} \\
-    \end{eqnarray}
-    \]
-    \[
-    \text{(substitute \eqref{eq:DensityDefinition} and \eqref{eq:ForceDensityDefinition}
-    into \eqref{eq:NewtonsSecondLaw})}
-    \]
-    \[
-    \begin{equation}
-    \rho \times volume \times (acceleration) = \mathbf{f} \times volume
-    \end{equation}
-    \]
-    \[
-    \text{(cancel out volume on both sides)}
-    \]
-    \[
-    \begin{equation}
-    \rho \times (acceleration) = \mathbf{f}
-    \label{eq:NewtonsSecondLawFluid}
-    \end{equation}
-    \]
-</div>
-The force density is made up of three parts. First, there's the pressure force 
-per unit volume, which is defined as \(\mathbf{f}_{pres} = -\nabla p\), 
-where \(p\) is the scalar pressure field. Second, there's the external forces,
-such as gravity, which are defined in terms of a potential field, \(\phi\). In
-the simple case of gravity only, we can simply say 
-\(\mathbf{f}_{ext} = \rho \mathbf{g}\), where \(\mathbf{g}\) is the gravitational
-acceleration vector. Lastly there's the viscosity force \(\mathbf{f}_{visc}\), 
-which is defined as \(\mathbf{f}_{visc} = \mu \nabla^2 \mathbf{v}\). We will 
-delve into viscosity in a later class. So, in summary:
-<div class="LaTexEquation">
-    \[
-    \begin{eqnarray}
-    \mathbf{f}_{pres} &=& -\nabla p \\
-    \mathbf{f}_{visc} &=& \mu \nabla^2 \mathbf{v} \\
-    \mathbf{f}_{ext} &=& \rho \mathbf{g} \\
-    \end{eqnarray}
-    \]
-    \[
-    \begin{eqnarray}
-    \mathbf{f} &=& \mathbf{f}_{pres} + \mathbf{f}_{visc} + \mathbf{f}_{ext} \\
-    \mathbf{f} &=& -\nabla p + \mu \nabla^2 \mathbf{v} + \rho \mathbf{g}
-    \label{eq:ForceDensityExpanded} \\
-    \end{eqnarray}
-    \]
-</div>
-The only thing that's left is the acceleration term. This is tricker than it 
-seems! The obvious thing to do would be to say that acceleration equals
-\(\frac{\partial \mathbf{v}}{\partial t}\). However, this is not correct, for
-subtle reasons.  We're simulating our fluid on a computation grid (our state
-array cells) that is defined at fixed locations in space. The individual particles
-of fluid are moving through those locations, and so we have to take the motion 
-of the fluid into account when computing acceleration. This is called the "material
-derivative" of velocity, written \(\frac{D \mathbf{v}}{D t}\). There's a detailed 
-derivation in Chapter 40 of the
-<a href="http://www.feynmanlectures.info/">Feynman Lectures on Physics</a>, which
-we'll skip to the end of:
-<div class="LaTexEquation">
-    \[
-    \begin{equation}
-    \frac{D \mathbf{v}}{D t} = v_x \frac{\partial \mathbf{v}}{\partial x} +
-        v_y \frac{\partial \mathbf{v}}{\partial y} +
-        v_z \frac{\partial \mathbf{v}}{\partial z} +
-        \frac{\partial \mathbf{v}}{\partial t}
-    \label{eq:MaterialDerivativeBigD}
-    \end{equation}
-    \]
-</div>
-There's a symbolic notation for the summed spatial partial derivatives above,
-called the 
-<a href="http://en.wikipedia.org/wiki/Advection#The_advection_equation">
-Advection Operator</a>, \((\mathbf{v} \cdot \nabla)\):
-<div class="LaTexEquation">
-    \[
-    \begin{equation}
-    (\mathbf{v} \cdot \nabla)\mathbf{v} =
-        v_x \frac{\partial \mathbf{v}}{\partial x} +
-        v_y \frac{\partial \mathbf{v}}{\partial y} +
-        v_z \frac{\partial \mathbf{v}}{\partial z}
-    \label{eq:AdvectionOperatorVelocity}
-    \end{equation}
-    \]
-</div>
-Which allows us to describe the fluid acceleration:
-<div class="LaTexEquation">
-    \[
-    \begin{equation}
-    acceleration = (\mathbf{v} \cdot \nabla)\mathbf{v} + 
-        \frac{\partial \mathbf{v}}{\partial t}
-    \label{eq:FluidAcceleration}
-    \end{equation}
-    \]
-</div>
-Substituting \(\eqref{eq:ForceDensityExpanded}\) and
-\(\eqref{eq:FluidAcceleration}\) into \(\eqref{eq:NewtonsSecondLawFluid}\), we
-arrive (finally) at the momentum equation for a fluid:
-<div class="LaTexEquation">
-    \[
-    \begin{equation}
-    \rho (\frac{\partial \mathbf{v}}{\partial t} + 
-            \mathbf{v} \cdot \nabla \mathbf{v}) = 
-            -\nabla p + \mu \nabla^2 \mathbf{v} + \rho \mathbf{g}
-    \label{eq:NavierStokesMomentum}
-    \end{equation}
-    \]
-</div>
-
-state of the fluid is entirely Firstly, we'll describe the 
-conservation of mass for a fluid. 
-at the beginning of the class. Our state will be a vector of 2D arrays, as in the 2D Wave Equation
-example. Each cell will contain a scalar representing the amount of smoke,
-as well as a velocity in the x & y directions. We'll also have a pressure field,
-and we'll require some additional fields to complete the picture.  The solver 
-in its final form will be a solution to the <a href="http://en.wikipedia.org/wiki/Navier-Stokes_equations#Incompressible_flow_of_Newtonian_fluids">Incompressible Navier Stokes Equations</a> in 2D, which can be written as follows:
+As with soot, we'll need proper initialization, and a swap function:
 <p>
-<div class="LaTexEquation">
-    \[
-    \begin{equation}
-    \rho (\frac{\partial \mathbf{v}}{\partial t} + 
-            \mathbf{v} \cdot \nabla \mathbf{v}) = 
-            -\nabla p + \mu \nabla^2 \mathbf{v} + \mathbf{f}
-    \label{eq:NavierStokesMomentum2}
-    \end{equation}
-    \]\[
-    \begin{equation}
-    \nabla \cdot \mathbf{v} = 0
-    \label{eq:NavierStokesContinuity}
-    \end{equation}
-    \]
-</div>
-The first of these two equations, \(\eqref{eq:NavierStokesMomentum}\) is called 
-the Momentum Equation, and the second, \(\eqref{eq:NavierStokesContinuity}\)
-is called the Continuity Equation. To start with, we'll focus on the first
-part of the momentum equation, \(\frac{\partial \mathbf{v}}{\partial t} + 
-            \mathbf{v} \cdot \nabla \mathbf{v}\), which represents the acceleration
-of the fluid velocity and the motion of the fluid mass through the spatial
-locations represented by the simulation grid cells.  We can temporarily discard
-all the other parts of the momentum equation and just consider the simpler equation:
-<div class="LaTexEquation">
-    \[
-    \begin{equation}
-    \frac{\partial \mathbf{v}}{\partial t} + 
-            \mathbf{v} \cdot \nabla \mathbf{v} = 0
-    \label{eq:Advection}
-    \end{equation}
-    \]
-</div>
-Though smoke and air are not incompressible, we'll treat them as an incompressible
-fluid for the purposes of this exploration, which means the density \(\rho\) is
-constant in the equations. To represent smoke visually, we'll use an "ink density"
-scalar that we advect through the fluid, but otherwise does not affect the physics
-of the simulation.
+<pre><code>
+void SetInitialState() {
+  ...
+  CopyField(StateVelU, StatePrevVelU);
+  CopyField(StateVelV, StatePrevVelV);
+}
 
+...
 
+void SwapVel() {
+  int tmp = StatePrevVelU;
+  StatePrevVelU = StateVelU;
+  StateVelU = tmp;
+
+  tmp = StatePrevVelV;
+  StatePrevVelV = StateVelV;
+  StateVelV = tmp;
+}
+</code></pre>
+<p>
+The time step then just has self-advection added, AFTER the advection of the
+soot:
+<pre><code>
+void TimeStep(float dt) {
+  ++TotalTimeSteps;
+  StateCurrentTime += dt;
+  SwapSoot();
+  SwapVel();
+  SemiLagrangianAdvect(StateSoot, StatePrevSoot,
+      StatePrevVelU, StatePrevVelV, dt);
+  SemiLagrangianAdvect(StateVelU, StatePrevVelU,
+      StatePrevVelU, StatePrevVelV, dt);
+  SemiLagrangianAdvect(StateVelV, StatePrevVelV,
+      StatePrevVelU, StatePrevVelV, dt);
+}
+</code></pre>
+<p>
+And that's all we have to add for self-advection - let's have a look:
+(Hit 'r' to reset)
+<p>
+<script type="application/processing"
+    data-processing-target="pjsSemiLagrangianAdvection">
+float WorldSize = 10.0;
+int NX = 64;
+int NY = 64;
+int ArraySize = NX * NY;
+float DXY = WorldSize / NX;
+
+float LX = WorldSize;
+float LY = WorldSize;
+
+int StateSize = 6;
+float[][] State = new float[StateSize][ArraySize];
+int StateVelU = 0;
+int StatePrevVelU = 1;
+int StateVelV = 2;
+int StatePrevVelV = 3;
+int StateSoot = 4;
+int StatePrevSoot = 5;
+
+float StateCurrentTime = 0.0;
+int TotalTimeSteps = 0;
+
+int PixelsPerCell = 8;
+
+int WindowWidth = PixelsPerCell * NX;
+int WindowHeight = PixelsPerCell * NY;
+
+boolean InputActive = false;
+int InputIndexX = 0;
+int InputIndexY = 0;
+float InputHeight = 0;
+
+PImage StateImage = createImage( NX, NY, RGB );
+
+// Index an element of a grid in the state array
+int IX( int i, int j ) {
+    return ( i + NX*j );
+}
+
+float snoise( float x, float y ) {
+   return ( 2.0 * noise( x, y )) - 1.0;
+}
+
+float Fractal(float x, float y) {
+  float octave_gain = 0.5;
+  float lacunarity = 1.67;
+  float f = 0.0;
+  float amp = 1.0;
+  float px = x;
+  float py = y;
+  for (int oct = 0; oct < 4; ++oct) {
+    f += amp * snoise(px, py);
+    amp *= octave_gain;
+    px *= lacunarity;
+    py *= lacunarity;
+  }
+  return f;
+}
+
+void SetFieldToFractal(int field, float gain,
+    float offset_x, float offset_y,
+    float pattern_size) {
+  noiseSeed( 0 );
+  float spacing = DXY / pattern_size;
+  for (int j = 0; j < NY; ++j) {
+    float noise_pos_y = offset_y + spacing * float(j);
+    for (int i = 0; i < NX; ++i) {
+      float noise_pos_x = offset_x + spacing * float(i);
+      float d = gain * Fractal(noise_pos_x, noise_pos_y);
+      State[field][IX(i,j)] = d;
+    }
+  }
+}
+
+// Draws a hatched grid of lines.
+void SetFieldToHatch(int field, int line_width, int cell_width) {
+  for (int j = 0; j < NY; ++j) {
+    int j_line = (j + (line_width/2)) % cell_width;
+    boolean j_in_line = j_line < line_width;
+    for (int i = 0; i < NX; ++i) {
+      int i_line = (i + (line_width/2)) % cell_width;
+      boolean i_in_line = i_line < line_width;
+
+      State[field][IX(i,j)] = i_in_line || j_in_line ? 1.0 : 0.0;
+    }
+  }
+}
+
+void CopyField(int src, int dst) {
+  for (int i = 0; i < ArraySize; ++i) {
+    State[dst][i] = State[src][i];
+  }
+}
+
+void FillField(int field, float value) {
+  for (int i = 0; i < ArraySize; ++i) {
+    State[field][i] = value;
+  }
+}
+
+float VelocityInitAmplitude = WorldSize * 0.125;
+void SetInitialState() {
+  TotalTimeSteps = 0;
+  StateCurrentTime = 0.0;
+  SetFieldToFractal(StateVelV, VelocityInitAmplitude,
+      2341.17, 9911.44, WorldSize * 0.617);
+  SetFieldToFractal(StateVelU, VelocityInitAmplitude,
+      -8181.13, -1881.81, WorldSize * 0.617);
+  SetFieldToHatch(StateSoot, 2, NX/8);
+  CopyField(StateVelU, StatePrevVelU);
+  CopyField(StateVelV, StatePrevVelV);
+  CopyField(StateSoot, StatePrevSoot);
+
+  // Turn on looping, which may have been turned off.
+  loop();
+}
+
+void setup() {
+    SetInitialState();
+    size(WindowWidth, WindowHeight);
+    colorMode(RGB, 1.0);
+    strokeWeight(1.0);
+    textSize(24);
+}
+
+void SwapSoot() {
+  int tmp = StatePrevSoot;
+  StatePrevSoot = StateSoot;
+  StateSoot = tmp;
+}
+
+void SwapVel() {
+  int tmp = StatePrevVelU;
+  StatePrevVelU = StateVelU;
+  StateVelU = tmp;
+
+  tmp = StatePrevVelV;
+  StatePrevVelV = StateVelV;
+  StateVelV = tmp;
+}
+
+// Bi-Linear Resampling of a field Q at some point fi, fj
+float BiLinearResample(int Q, float fi, float fj) {
+  int i_lo = floor(fi);
+  float s = fi - float(i_lo);
+  i_lo = constrain(i_lo, 0, NX-1);
+  int i_hi = min(i_lo + 1, NX-1);
+
+  int j_lo = floor(fj);
+  float t = fj - float(j_lo);
+  j_lo = constrain(j_lo, 0, NY-1);
+  int j_hi = min(j_lo + 1, NY-1);
+
+  float q00 = State[Q][IX(i_lo,j_lo)];
+  float q10 = State[Q][IX(i_hi,j_lo)];
+  float q01 = State[Q][IX(i_lo,j_hi)];
+  float q11 = State[Q][IX(i_hi,j_hi)];
+  return lerp(lerp(q00, q10, s), lerp(q01, q11, s), t);
+}
+
+// Semi-Lagrangian Advection of Q by U & V
+void SemiLagrangianAdvect(int new_Q, int old_Q, int U, int V, float dt) {
+  for (int j = 0; j < NY; ++j) {
+    for (int i = 0; i < NX; ++i) {
+      float vel_u = State[U][IX(i,j)];
+      float vel_v = State[V][IX(i,j)];
+
+      float cell_vel_u = vel_u / DXY;
+      float cell_vel_v = vel_v / DXY;
+
+      float fi = float(i) - (dt * cell_vel_u);
+      float fj = float(j) - (dt * cell_vel_v);
+
+      State[new_Q][IX(i,j)] = BiLinearResample(old_Q, fi, fj);
+    }
+  }
+}
+
+void TimeStep(float dt) {
+  ++TotalTimeSteps;
+  StateCurrentTime += dt;
+  SwapSoot();
+  SwapVel();
+  SemiLagrangianAdvect(StateSoot, StatePrevSoot,
+      StatePrevVelU, StatePrevVelV, dt);
+  SemiLagrangianAdvect(StateVelU, StatePrevVelU,
+      StatePrevVelU, StatePrevVelV, dt);
+  SemiLagrangianAdvect(StateVelV, StatePrevVelV,
+      StatePrevVelU, StatePrevVelV, dt);
+}
+
+// Display Gamma
+float DisplayGamma = 2.2;
+
+// Draw velocity as line segments. We can optionally skip
+// some of the points, and we can scale the length of the vectors
+// accordingly.
+void DrawVelocityAsLines(int U, int V,
+    int step_u, int step_v,
+    float dt) {
+  beginShape(LINES);
+  for (int j = step_v / 2; j < NY; j += step_v) {
+    float pixel_start_y = PixelsPerCell * float(j);
+    for (int i = step_u / 2; i < NX; i += step_u) {
+      float pixel_start_x = PixelsPerCell * float(i);
+
+      float vel_u = State[U][IX(i,j)];
+      float vel_v = State[V][IX(i,j)];
+      float pixel_vel_u = PixelsPerCell * State[U][IX(i,j)] / DXY;
+      float pixel_vel_v = PixelsPerCell * State[V][IX(i,j)] / DXY;
+
+      float pixel_end_x = pixel_start_x + (dt * pixel_vel_u);
+      float pixel_end_y = pixel_start_y + (dt * pixel_vel_v);
+      vertex(pixel_start_x, pixel_start_y);
+      vertex(pixel_end_x, pixel_end_y);
+    }
+  }
+  endShape();
+}
+
+void DrawScalarField(int field,
+    float from_low, float from_high, float exponent,
+    color color_low, color color_high) {
+  float d;
+  StateImage.loadPixels();
+  for (int j = 0; j < NY; ++j) {
+    for (int i = 0; i < NX; ++i) {
+      d = State[field][IX(i,j)];
+
+      d = (d - from_low)/(from_high - from_low);
+      d = constrain(d, 0.0, 1.0);
+      d = pow(d, exponent);
+
+      StateImage.pixels[IX(i,j)] = lerpColor(color_low, color_high, d);
+    }
+  }
+  StateImage.updatePixels();
+  image(StateImage, 0, 0, width, height);
+}
+
+void draw() {
+  if (TotalTimeSteps > 1000) {
+    noLoop();
+  }
+  TimeStep(1.0/24.0);
+
+  background(0.5);
+  // Draw soot.
+  color soot_high = color(0.3, 0.0, 0.3);
+  color soot_low = color(1.0, 1.0, 1.0);
+  DrawScalarField(StateSoot, 0.0, 1.0, 3.0, soot_low, soot_high);
+
+  // Draw Velocity as lines
+  // Length gain is somewhat arbitrary.
+  float dt = (1.0 / 24.0);
+  stroke(1.0, 0.1, 0.1);
+  DrawVelocityAsLines(StateVelU, StateVelV, 2, 2, 20.0 * dt);
+
+  // Label.
+  noStroke();
+  fill(1.0, 1.0, 1.0, 0.75);
+  rect(0.0, 0.0, width, 40.0);
+  fill( 0.0 );
+  text("Semi-Lagrangian Advection", 10, 30);
+}
+
+// Reset function. If the key 'r' is released in the display,
+// copy the initial state to the state.
+void keyReleased() {
+    if ( key == 114 ) {
+        SetInitialState();
+    }
+}
+</script>
+<canvas id="pjsSemiLagrangianAdvection"> </canvas>
+<p>
+It's fairly obvious that our lack of boundary conditions and our questionable
+initial velocities are producing somewhat strange behavior over time, but we
+can clearly see that the velocity and soot are being moved along the streamlines,
+and that we aren't getting any instabilities. In the next classes, we'll
+consider our fluid boundary conditions and start adding extra fluid behavior
+such as incompressibility.
 <p>
 <h2>Download</h2>
 All of the files associated with this class are available via a public github repository, found here:

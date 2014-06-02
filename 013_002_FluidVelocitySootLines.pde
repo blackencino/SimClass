@@ -13,10 +13,17 @@ int StateVelU = 0;
 int StateVelV = 1;
 int StateSoot = 2;
 
+float StateCurrentTime = 0.0;
+
 int PixelsPerCell = 8;
 
 int WindowWidth = PixelsPerCell * NX;
 int WindowHeight = PixelsPerCell * NY;
+
+boolean InputActive = false;
+int InputIndexX = 0;
+int InputIndexY = 0;
+float InputHeight = 0;
 
 PImage StateImage = createImage( NX, NY, RGB );
 
@@ -26,7 +33,7 @@ int IX( int i, int j ) {
 }
 
 float snoise( float x, float y ) {
-   return (2.0 * noise( x, y )) - 1.0;
+   return ( 2.0 * noise( x, y )) - 1.0;
 }
 
 float Fractal(float x, float y) {
@@ -87,7 +94,7 @@ void setup() {
     SetInitialState();
     size(WindowWidth, WindowHeight);
     colorMode(RGB, 1.0);
-    strokeWeight(0.5);
+    strokeWeight(1.0);
     textSize(24);
     noLoop();
 }
@@ -95,37 +102,46 @@ void setup() {
 // Display Gamma
 float DisplayGamma = 2.2;
 
-// Draw vector field into the image. The from_low and from_high
-// represent the numerical range that will be mapped into the 0-1
-// space of red and green. A display gamma will then be applied.
-void DrawVectorField(int field_r, int field_g, int field_b,
-    float from_low_r, float from_low_g, float from_low_b,
-    float from_high_r, float from_high_g, float from_high_b) {
-  float r, g, b;
+// Draw velocity as line segments. We can optionally skip
+// some of the points, and we can scale the length of the vectors
+// accordingly.
+void DrawVelocityAsLines(int U, int V,
+    int step_u, int step_v,
+    float dt) {
+  beginShape(LINES);
+  for (int j = step_v / 2; j < NY; j += step_v) {
+    float pixel_start_y = PixelsPerCell * float(j);
+    for (int i = step_u / 2; i < NX; i += step_u) {
+      float pixel_start_x = PixelsPerCell * float(i);
+
+      float vel_u = State[U][IX(i,j)];
+      float vel_v = State[V][IX(i,j)];
+      float pixel_vel_u = PixelsPerCell * State[U][IX(i,j)] / DXY;
+      float pixel_vel_v = PixelsPerCell * State[V][IX(i,j)] / DXY;
+
+      float pixel_end_x = pixel_start_x + (dt * pixel_vel_u);
+      float pixel_end_y = pixel_start_y + (dt * pixel_vel_v);
+      vertex(pixel_start_x, pixel_start_y);
+      vertex(pixel_end_x, pixel_end_y);
+    }
+  }
+  endShape();
+}
+
+void DrawScalarField(int field,
+    float from_low, float from_high, float exponent,
+    color color_low, color color_high) {
+  float d;
   StateImage.loadPixels();
   for (int j = 0; j < NY; ++j) {
     for (int i = 0; i < NX; ++i) {
-      r = field_r < 0 ? 0 : State[field_r][IX(i,j)];
-      g = field_g < 0 ? 0 : State[field_g][IX(i,j)];
-      b = field_b < 0 ? 0 : State[field_b][IX(i,j)];
+      d = State[field][IX(i,j)];
 
-      // remap.
-      r = (r - from_low_r) / (from_high_r - from_low_r);
-      g = (g - from_low_g) / (from_high_g - from_low_g);
-      b = (b - from_low_b) / (from_high_b - from_low_b);
+      d = (d - from_low)/(from_high - from_low);
+      d = constrain(d, 0.0, 1.0);
+      d = pow(d, exponent);
 
-      // constrain.
-      r = constrain(r, 0.0, 1.0);
-      g = constrain(g, 0.0, 1.0);
-      b = constrain(b, 0.0, 1.0);
-
-      // display gamma.
-      r = pow(r, DisplayGamma);
-      g = pow(g, DisplayGamma);
-      b = pow(b, DisplayGamma);
-
-      // Set
-      StateImage.pixels[IX(i,j)] = color(r, g, b);
+      StateImage.pixels[IX(i,j)] = lerpColor(color_low, color_high, d);
     }
   }
   StateImage.updatePixels();
@@ -133,16 +149,23 @@ void DrawVectorField(int field_r, int field_g, int field_b,
 }
 
 void draw() {
-  // Draw Velocity
-  DrawVectorField(StateVelU, StateVelV, StateSoot,
-    -VelocityInitAmplitude, -VelocityInitAmplitude, 0.0,
-    VelocityInitAmplitude, VelocityInitAmplitude, 1.0);
+  background(0.5);
+
+  // Draw soot as a purplish smoke.
+  color soot_zero = color(1.0, 1.0, 1.0);
+  color soot_one = color(0.3, 0.0, 0.3);
+  DrawScalarField(StateSoot, 0.0, 1.0, 3.0, soot_zero, soot_one);
+
+  // Draw Velocity as lines
+  // Length gain is somewhat arbitrary.
+  float dt = (1.0 / 24.0);
+  stroke(1.0, 0.1, 0.1);
+  DrawVelocityAsLines(StateVelU, StateVelV, 2, 2, 10.0 * dt);
 
   // Label.
   noStroke();
   fill(1.0, 1.0, 1.0, 0.75);
   rect(0.0, 0.0, width, 40.0);
   fill( 0.0 );
-  text("Fluid Velocity & Soot : RG, B", 10, 30);
+  text("Fluid Velocity & Soot : Lines, RGB", 10, 30);
 }
-

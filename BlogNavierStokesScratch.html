@@ -1,0 +1,204 @@
+
+
+
+
+
+Though air and smoke are compressible, and have
+variable density, we'll model our fluid as an incompressible fluid for simplicity.
+This gives us our first equation of state, that density, written using the greek
+letter \(\rho\), is constant, and we'll simplify life by just setting it equal
+to 1.
+<div class="LaTexEquation">
+    \[
+    \begin{equation}
+    \rho = constant = 1
+    \label{eq:ConstantDensity}
+    \end{equation}
+    \]
+</div>
+<p>
+<h2>Fluid Equations of Motion</h2>
+To derive the equations of motion for a fluid, we'll follow the steps described
+by <a href="http://en.wikipedia.org/wiki/Richard_Feynman">Richard Feynman</a> in
+the classic <a href="http://www.feynmanlectures.info/">Feynman Lectures on Physics</a>,
+Book II, Chapter 40 ("The Flow of Dry Water").
+<h3>Fluid Velocity</h3>
+Firstly, we must consider what
+we're simulating and how to represent it in our State. For a homogeneous,
+incompressible fluid without an interface to a second fluid (called a free surface),
+the main property of the fluid that we are simulating is its velocity. This makes intuitive sense -  when we think of "fluidity", we think of smooth, stream-like motion that changes in curvy ways over time. (Or at least I do).
+So, let's start with a simple state that's reminiscent of the previous
+2D Wave Equation:
+<p>
+The equations of motion for an incompressible fluid (ignoring temperature and
+magnetic effects) say, simply, "Mass and Momentum are Conserved". We'll do
+a little bit of derivation here, just to understand the nature of the terms, but
+our primary concern is in translating the equations into a simulation engine, and
+there are ample resources for working through these derivations on your own.
+Let's look first at the "Momentum Is Conserved" part.
+<h3>Hydrodynamic Equation of Motion</h3>
+Newton's second law says that mass times acceleration is equal to force. For a
+fluid, let us consider a fixed volume of the space which the fluid occupies - in
+our case, each "cell" of our 2D array (or grid) represents a small square with
+a fixed area - or in 3D, a volume. Let \(\mathbf{f}\) represent the
+<i>force density</i>, that is, the force per unit volume, a continuously varying
+field in space and time. Density, \(\rho\), is defined as the mass per unit
+volume, so we can derive Newton's second law for fluids as:
+<div class="LaTexEquation">
+    \[
+    \begin{eqnarray}
+    mass \times (acceleration) &=& force \label{eq:NewtonsSecondLaw} \\
+    mass &=& \rho \times volume \label{eq:DensityDefinition} \\
+    force &=& \mathbf{f} \times volume \label{eq:ForceDensityDefinition} \\
+    \end{eqnarray}
+    \]
+    \[
+    \text{(substitute \eqref{eq:DensityDefinition} and \eqref{eq:ForceDensityDefinition}
+    into \eqref{eq:NewtonsSecondLaw})}
+    \]
+    \[
+    \begin{equation}
+    \rho \times volume \times (acceleration) = \mathbf{f} \times volume
+    \end{equation}
+    \]
+    \[
+    \text{(cancel out volume on both sides)}
+    \]
+    \[
+    \begin{equation}
+    \rho \times (acceleration) = \mathbf{f}
+    \label{eq:NewtonsSecondLawFluid}
+    \end{equation}
+    \]
+</div>
+The force density is made up of three parts. First, there's the pressure force
+per unit volume, which is defined as \(\mathbf{f}_{pres} = -\nabla p\),
+where \(p\) is the scalar pressure field. Second, there's the external forces,
+such as gravity, which are defined in terms of a potential field, \(\phi\). In
+the simple case of gravity only, we can simply say
+\(\mathbf{f}_{ext} = \rho \mathbf{g}\), where \(\mathbf{g}\) is the gravitational
+acceleration vector. Lastly there's the viscosity force \(\mathbf{f}_{visc}\),
+which is defined as \(\mathbf{f}_{visc} = \mu \nabla^2 \mathbf{v}\). We will
+delve into viscosity in a later class. So, in summary:
+<div class="LaTexEquation">
+    \[
+    \begin{eqnarray}
+    \mathbf{f}_{pres} &=& -\nabla p \\
+    \mathbf{f}_{visc} &=& \mu \nabla^2 \mathbf{v} \\
+    \mathbf{f}_{ext} &=& \rho \mathbf{g} \\
+    \end{eqnarray}
+    \]
+    \[
+    \begin{eqnarray}
+    \mathbf{f} &=& \mathbf{f}_{pres} + \mathbf{f}_{visc} + \mathbf{f}_{ext} \\
+    \mathbf{f} &=& -\nabla p + \mu \nabla^2 \mathbf{v} + \rho \mathbf{g}
+    \label{eq:ForceDensityExpanded} \\
+    \end{eqnarray}
+    \]
+</div>
+The only thing that's left is the acceleration term. This is tricker than it
+seems! The obvious thing to do would be to say that acceleration equals
+\(\frac{\partial \mathbf{v}}{\partial t}\). However, this is not correct, for
+subtle reasons.  We're simulating our fluid on a computation grid (our state
+array cells) that is defined at fixed locations in space. The individual particles
+of fluid are moving through those locations, and so we have to take the motion
+of the fluid into account when computing acceleration. This is called the "material
+derivative" of velocity, written \(\frac{D \mathbf{v}}{D t}\). There's a detailed
+derivation in Chapter 40 of the
+<a href="http://www.feynmanlectures.info/">Feynman Lectures on Physics</a>, which
+we'll skip to the end of:
+<div class="LaTexEquation">
+    \[
+    \begin{equation}
+    \frac{D \mathbf{v}}{D t} = v_x \frac{\partial \mathbf{v}}{\partial x} +
+        v_y \frac{\partial \mathbf{v}}{\partial y} +
+        v_z \frac{\partial \mathbf{v}}{\partial z} +
+        \frac{\partial \mathbf{v}}{\partial t}
+    \label{eq:MaterialDerivativeBigD}
+    \end{equation}
+    \]
+</div>
+There's a symbolic notation for the summed spatial partial derivatives above,
+called the
+<a href="http://en.wikipedia.org/wiki/Advection#The_advection_equation">
+Advection Operator</a>, \((\mathbf{v} \cdot \nabla)\):
+<div class="LaTexEquation">
+    \[
+    \begin{equation}
+    (\mathbf{v} \cdot \nabla)\mathbf{v} =
+        v_x \frac{\partial \mathbf{v}}{\partial x} +
+        v_y \frac{\partial \mathbf{v}}{\partial y} +
+        v_z \frac{\partial \mathbf{v}}{\partial z}
+    \label{eq:AdvectionOperatorVelocity}
+    \end{equation}
+    \]
+</div>
+Which allows us to describe the fluid acceleration:
+<div class="LaTexEquation">
+    \[
+    \begin{equation}
+    acceleration = (\mathbf{v} \cdot \nabla)\mathbf{v} +
+        \frac{\partial \mathbf{v}}{\partial t}
+    \label{eq:FluidAcceleration}
+    \end{equation}
+    \]
+</div>
+Substituting \(\eqref{eq:ForceDensityExpanded}\) and
+\(\eqref{eq:FluidAcceleration}\) into \(\eqref{eq:NewtonsSecondLawFluid}\), we
+arrive (finally) at the momentum equation for a fluid:
+<div class="LaTexEquation">
+    \[
+    \begin{equation}
+    \rho (\frac{\partial \mathbf{v}}{\partial t} +
+            \mathbf{v} \cdot \nabla \mathbf{v}) =
+            -\nabla p + \mu \nabla^2 \mathbf{v} + \rho \mathbf{g}
+    \label{eq:NavierStokesMomentum}
+    \end{equation}
+    \]
+</div>
+
+state of the fluid is entirely Firstly, we'll describe the
+conservation of mass for a fluid.
+at the beginning of the class. Our state will be a vector of 2D arrays, as in the 2D Wave Equation
+example. Each cell will contain a scalar representing the amount of smoke,
+as well as a velocity in the x & y directions. We'll also have a pressure field,
+and we'll require some additional fields to complete the picture.  The solver
+in its final form will be a solution to the <a href="http://en.wikipedia.org/wiki/Navier-Stokes_equations#Incompressible_flow_of_Newtonian_fluids">Incompressible Navier Stokes Equations</a> in 2D, which can be written as follows:
+<p>
+<div class="LaTexEquation">
+    \[
+    \begin{equation}
+    \rho (\frac{\partial \mathbf{v}}{\partial t} +
+            \mathbf{v} \cdot \nabla \mathbf{v}) =
+            -\nabla p + \mu \nabla^2 \mathbf{v} + \mathbf{f}
+    \label{eq:NavierStokesMomentum2}
+    \end{equation}
+    \]\[
+    \begin{equation}
+    \nabla \cdot \mathbf{v} = 0
+    \label{eq:NavierStokesContinuity}
+    \end{equation}
+    \]
+</div>
+The first of these two equations, \(\eqref{eq:NavierStokesMomentum}\) is called
+the Momentum Equation, and the second, \(\eqref{eq:NavierStokesContinuity}\)
+is called the Continuity Equation. To start with, we'll focus on the first
+part of the momentum equation, \(\frac{\partial \mathbf{v}}{\partial t} +
+            \mathbf{v} \cdot \nabla \mathbf{v}\), which represents the acceleration
+of the fluid velocity and the motion of the fluid mass through the spatial
+locations represented by the simulation grid cells.  We can temporarily discard
+all the other parts of the momentum equation and just consider the simpler equation:
+<div class="LaTexEquation">
+    \[
+    \begin{equation}
+    \frac{\partial \mathbf{v}}{\partial t} +
+            \mathbf{v} \cdot \nabla \mathbf{v} = 0
+    \label{eq:Advection}
+    \end{equation}
+    \]
+</div>
+Though smoke and air are not incompressible, we'll treat them as an incompressible
+fluid for the purposes of this exploration, which means the density \(\rho\) is
+constant in the equations. To represent smoke visually, we'll use an "ink density"
+scalar that we advect through the fluid, but otherwise does not affect the physics
+of the simulation.
