@@ -34,7 +34,7 @@
 //------------------------------------------------------------------------------
 function create_simulation_state(count) {
     return {
-        ids: new BigUint64Array(2 * count),
+        ids: new Uint32Array(count),
         positions: new Float32Array(2 * count),
         velocities: new Float32Array(2 * count),
         colors: new Float32Array(3 * count),
@@ -55,8 +55,7 @@ function random_box_initial_state(
     const my_rng = new Math.seedrandom(seed);
     let i;
     for (i = 0; i < POINT_COUNT; ++i) {
-        state.ids[2 * i] = BigInt(i);
-        state.ids[2 * i + 1] = BigInt(0);
+        state.ids[i] = i;
 
         // Random point in the width/height box
         state.positions[2 * i] = width * my_rng();
@@ -212,13 +211,12 @@ function world_walls_initial_solid_state({
 
     const positions = new Float32Array(positions_array);
     const count = positions.length / 2;
-    const ids = new BigUint64Array(count * 2);
+    const ids = new Uint32Array(count);
     const velocities = new Float32Array(count * 2);
     const colors = new Float32Array(count * 3);
     let i;
     for (i = 0; i < count; ++i) {
-        ids[2 * i] = BigInt(i);
-        ids[2 * i + 1] = BigInt(0);
+        ids[i] = i;
 
         velocities[2 * i] = 0.0;
         velocities[2 * i + 1] = 0.0;
