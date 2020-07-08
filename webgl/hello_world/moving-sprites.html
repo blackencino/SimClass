@@ -457,7 +457,7 @@ class Sprite_renderer {
     }
 
     update_buffers(state) {
-        assert(state.positions.length / 2 === this.point_count);
+        //assert(state.positions.length / 2 === this.point_count);
         const gl = this.gl_context_bundle.gl;
         gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.centers);
         gl.bufferData(gl.ARRAY_BUFFER, state.positions, gl.STREAM_DRAW);
@@ -530,8 +530,8 @@ class Simple_simulation_renderer {
     }
 
     update_buffers(simulation) {
-        this.fluid_renderer.update_buffers(simulation.fluid_state);
-        this.solid_renderer.update_buffers(simulation.solid_state);
+        this.fluid_renderer.update_buffers(simulation.state);
+        //this.solid_renderer.update_buffers(simulation.solid_state);
     }
 
     render({
@@ -558,13 +558,13 @@ class Simple_simulation_renderer {
             fixed_color: solid_fixed_color,
         });
 
-        // this.fluid_renderer.render({
-        //     do_array_colors: do_array_colors,
-        //     point_size: point_size_gain * this.simulation.radius,
-        //     projection: projection,
-        //     modelview: this.solid_modelview,
-        //     fixed_color: fluid_fixed_color,
-        // });
+        this.fluid_renderer.render({
+            do_array_colors: do_array_colors,
+            point_size: 2.0 * point_size_gain * this.simulation.radius,
+            projection: projection,
+            modelview: this.solid_modelview,
+            fixed_color: fluid_fixed_color,
+        });
     }
 }
 
@@ -572,10 +572,10 @@ class Simple_simulation_renderer {
 // Initialize the program.
 // This function is called after the page has been loaded.
 function init() {
-    let canvas;
-    let gl_context_bundle;
-    let simulation;
-    let simulation_renderer;
+    var canvas;
+    var gl_context_bundle;
+    var simulation;
+    var simulation_renderer;
     try {
         canvas = document.getElementById("webglcanvas");
         gl_context_bundle = get_gl_context_bundle(canvas);
@@ -605,7 +605,30 @@ function init() {
         return;
     }
 
-    simulation_renderer.render({ width: canvas.width, height: canvas.height });
+    var prev_time = performance.now();
+    var do_frame = function(new_time) {
+        const delta_time = new_time - prev_time;
+        prev_time = new_time;
+        simulation.step(0.001 * delta_time);
+        simulation_renderer.update_buffers(simulation);
+        simulation_renderer.render({ width: canvas.width, height: canvas.height });
+        requestAnimationFrame(do_frame);
+    };
+    requestAnimationFrame(do_frame);
+    //do_frame(performance.now());
+
+    // simulation_renderer.render({ width: canvas.width, height: canvas.height });
+
+    // let prev_time = performance.now();
+    // const do_frame = function(new_time) {
+    //     const delta_time = new_time - prev_time;
+    //     prev_time = new_time;
+    //     simulation.step(0.001 * delta_time);
+    //     simulation_renderer.update_buffers(simulation);
+    //     simulation_renderer.render({ width: canvas.width, height: canvas.height });
+    //     requestAnimationFrame(do_frame);
+    // };
+    // requestAnimationFrame(do_frame);
 }
 
 </script>
