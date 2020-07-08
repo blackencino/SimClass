@@ -1,0 +1,675 @@
+
+<!DOCTYPE html>
+
+<!--
+   This page shows an animation of colored disks moving around
+   in a canvas, bouncing off the edges.  The program uses WebGL.
+   All of the points are drawn as single primitive of type POINTS.
+   The color is an attribute in the vertex shader, allowing
+   each point to be a different primitive.  The user can decide
+   whether to have randomly colored points or to make all the
+   points red.  The point size is a uniform variable, so all
+   the points are the same size.  However, the user can select
+   whether the size is large or small.
+-->
+
+<html>
+<head>
+<meta charset="UTF-8">
+<link rel="shortcut icon" href="favicon.ico" type="image/x-icon" />
+<title>Moving Sprites in WebGL</title>
+<style>
+    label {
+        margin-left: 30px;
+    }
+</style>
+
+
+<script src="gl-matrix-min.js"></script>
+<script>
+
+"use strict";
+//------------------------------------------------------------------------------
+function create_simulation_state(count) {
+    return {
+        ids: new BigUint64Array(2 * count),
+        positions: new Float32Array(2 * count),
+        velocities: new Float32Array(2 * count),
+        colors: new Float32Array(3 * count),
+    };
+}
+//------------------------------------------------------------------------------
+function random_box_initial_state(state, { width = 512, height = 512 } = {}) {
+    const POINT_COUNT = state.positions.length / 2;
+    let i;
+    for (i = 0; i < POINT_COUNT; ++i) {
+        state.ids[2 * i] = BigInt(i);
+        state.ids[2 * i + 1] = 0n;
+
+        // Random point in the width/height box
+        state.positions[2 * i] = width * Math.random();
+        state.positions[2 * i + 1] = height * Math.random();
+
+        const speed = 30.0 * (1.0 + 3.0 * Math.random());
+        const angle = 2.0 * Math.PI * Math.random();
+        state.velocities[2 * i] = speed * Math.cos(angle);
+        state.velocities[2 * i + 1] = speed * Math.sin(angle);
+    }
+    for (i = 0; i < 3 * POINT_COUNT; ++i) {
+        state.colors[i] = Math.random();
+    }
+}
+//------------------------------------------------------------------------------
+function simple_simulation_step(
+    state,
+    { delta_time = 1.0, radius = 1.0, width = 512, height = 512 } = {}
+) {
+    const POINT_COUNT = state.positions.length / 2;
+    let i;
+    // X-coordinates
+    for (i = 0; i < 2 * POINT_COUNT; i += 2) {
+        state.positions[i] += delta_time * state.velocities[i];
+        if (state.positions[i] - radius < 0) {
+            // Move point back onto rectangle and make sure it is moving
+            // in positive direction
+            state.positions[i] = radius - (state.positions[i] - radius);
+            state.velocities[i] = Math.abs(state.velocities[i]);
+        } else if (state.positions[i] + radius > width) {
+            // Move point back onto rectangle and make sure it is moving
+            // in negative direction
+            state.positions[i] =
+                width - (state.positions[i] + radius - width) - radius;
+            state.velocities[i] = -Math.abs(state.velocities[i]);
+        }
+    }
+    // Y-coordinates
+    for (i = 1; i < 2 * POINT_COUNT; i += 2) {
+        state.positions[i] += delta_time * state.velocities[i];
+        if (state.positions[i] - radius < 0) {
+            // Move point back onto rectangle and make sure it is moving
+            // in positive direction
+            state.positions[i] = radius - (state.positions[i] - radius);
+            state.velocities[i] = Math.abs(state.velocities[i]);
+        } else if (state.positions[i] + radius > height) {
+            // Move point back onto rectangle and make sure it is moving
+            // in negative direction
+            state.positions[i] =
+                height - (state.positions[i] + radius - height) - radius;
+            state.velocities[i] = -Math.abs(state.velocities[i]);
+        }
+    }
+}
+//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+
+
+//------------------------------------------------------------------------------
+function get_gl_context_bundle(canvas) {
+    const options = {
+        // no need for alpha channel or depth buffer in this program
+        alpha: false,
+        depth: false,
+    };
+    const gl =
+        canvas.getContext("webgl", options) ||
+        canvas.getContext("experimental-webgl", options);
+    if (!gl) {
+        throw "Browser does not support WebGL";
+    }
+
+    const instancing_ext = gl.getExtension("ANGLE_instanced_arrays");
+    if (!instancing_ext) {
+        throw "Browser does not support ANGLE_instanced_arrays";
+    }
+
+    const vertex_array_objects_ext = gl.getExtension("OES_vertex_array_object");
+    if (!vertex_array_objects_ext) {
+        throw "Browser does not support OES_vertex_array_object";
+    }
+
+    return {
+        gl: gl,
+        instancing: instancing_ext,
+        vertex_array_objects: vertex_array_objects_ext,
+    };
+}
+
+//------------------------------------------------------------------------------
+function init_program_info({gl, instancing, vertex_array_objects: vao}) {
+    const vertex_source = `
+        attribute vec2 a_quad_corner;
+        attribute vec2 a_center;
+        attribute vec3 a_color;
+        varying vec3 v_color;
+        varying vec2 v_point_coord;
+        uniform float u_point_size;
+
+        uniform mat4 u_projection;
+        uniform mat4 u_modelview;
+        void main() {
+            v_point_coord = a_quad_corner;
+            vec2 pos2d = a_center + 0.5 * u_point_size * a_quad_corner;
+            gl_Position = u_projection * u_modelview * vec4(pos2d, 0, 1);
+            v_color = a_color;
+        }`;
+
+    const fragment_source = `
+        precision mediump float;
+        varying vec3 v_color;
+        varying vec2 v_point_coord;
+        void main() {
+            float distance_from_center = length(v_point_coord);
+            if (distance_from_center >= 1.0) {
+                discard;
+            }
+            gl_FragColor = vec4(v_color, 1.0);
+        }`;
+
+    const program = create_program(
+        gl,
+        vertex_source,
+        fragment_source);
+
+    return {
+        program: program,
+        attribute_locations: {
+            a_quad_corner: gl.getAttribLocation(program, "a_quad_corner"),
+            a_center: gl.getAttribLocation(program, "a_center"),
+            a_color: gl.getAttribLocation(program, "a_color")
+        },
+        uniform_locations: {
+            u_projection: gl.getUniformLocation(program, "u_projection");
+            u_modelview: gl.getUniformLocation(program, "u_modelview");
+            u_point_size: gl.getUniformLocation(program, "u_point_size");
+        }
+    };
+}
+
+//------------------------------------------------------------------------------
+class Sprite_renderer {
+    constructor(
+        { gl, instancing: gl_inst, vertex_array_objects: gl_vao },
+        program_info,
+        state
+    ) {
+        this.program_info = program_info;
+        this.buffers = {
+            quad_corners: gl.createBuffer(),
+            centers: gl.createBuffer(),
+            colors: gl.createBuffer(),
+        };
+
+        const attrs = this.program_info.attribute_locations;
+        const unis = this.program_info.uniform_locations;
+
+        this.vao = gl_vao.createVertexArrayOES();
+        gl_vao.bindVertexArrayOES(this.vao);
+
+        const bind = ({
+            buffer,
+            data,
+            draw_type = gl.STATIC_DRAW,
+            attribute,
+            dimension,
+            divisor,
+        }) => {
+            gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+            gl.bufferData(gl.ARRAY_BUFFER, data, draw_type);
+            gl.vertexAttribPointer(attribute, dimension, gl.FLOAT, false, 0, 0);
+            gl_inst.vertexAttribDivisorANGLE(attribute, divisor);
+            gl.enableVertexAttribArray(attribute);
+        };
+
+        // Make quad corners
+        const quad_corners = new Float32Array([
+            -1.0,
+            -1.0,
+            1.0,
+            -1.0,
+            1.0,
+            1.0,
+            -1.0,
+            1.0,
+        ]);
+        bind({
+            buffer: this.buffers.quad_corners,
+            data: quad_corners,
+            attribute: attrs.a_quad_corner,
+            dimension: 2,
+            divisor: 0,
+        });
+
+        // gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.quad_corners);
+        // gl.bufferData(gl.ARRAY_BUFFER, quad_corners, gl.STATIC_DRAW);
+        // gl.vertexAttribPointer(attrs.a_quad_corner, 2, gl.FLOAT, false, 0, 0);
+        // gl_context_bundle.instancing.vertexAttribDivisorANGLE(attrs.a_quad_corner, 0);
+        // gl.enableVertexAttribArray(attrs.a_quad_corner);
+
+        // Make dynamic centers buffer
+        bind({
+            buffer: this.buffers.centers,
+            data: state.positions,
+            draw_type: gl.STREAM_DRAW,
+            attribute: attrs.a_center,
+            dimension: 2,
+            divisor: 1,
+        });
+
+        // gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.centers);
+        // gl.bufferData(gl.ARRAY_BUFFER, state.positions, gl.STREAM_DRAW);
+        // gl.vertexAttribPointer(attrs.a_center, 2, gl.FLOAT, false, 0, 0);
+        // gl_context_bundle.instancing.vertexAttribDivisorANGLE(attrs.a_center, 1);
+        // gl.enableVertexAttribArray(attrs.a_center);
+
+        bind({
+            buffer: this.buffers.colors,
+            data: state.colors,
+            attribute: attrs.a_color,
+            dimension: 3,
+            divisor: 1,
+        });
+
+        // Make static colors buffer
+        // gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.colors);
+        // gl.bufferData(gl.ARRAY_BUFFER, state.colors, gl.STATIC_DRAW);
+        // gl.vertexAttribPointer(this.program_info.attribute_locations.a_color, 3, gl.FLOAT, false, 0, 0);
+        // gl_context_bundle.instancing.vertexAttribDivisorANGLE(this.program_info.attribute_locations.a_color, 1);
+        // gl.enableVertexAttribArray(this.program_info.attribute_locations.a_color);
+    }
+
+    update_buffers(
+        { gl, instancing: gl_inst, vertex_array_objects: gl_vao },
+        state
+    ) {
+        // Make dynamic centers buffer
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.centers);
+        gl.bufferData(gl.ARRAY_BUFFER, state.positions, gl.STREAM_DRAW);
+        //gl.vertexAttribPointer(this.program_info.attribute_locations.a_center, 2, gl.FLOAT, false, 0, 0);
+        //gl_ext.vertexAttribDivisorANGLE(this.program_info.attribute_locations.a_center, 1);
+    }
+
+    render(
+        { gl, instancing: gl_inst, vertex_array_objects: gl_vao },
+        {
+            do_array_colors = true,
+            point_size = 10.0,
+            projection,
+            modelview,
+            fixed_color = [1, 0, 0],
+        }
+    ) {
+        const attrs = this.program_info.attribute_locations;
+        const unis = this.program_info.uniform_locations;
+
+        gl.useProgram(this.program_info.program);
+
+        // Bind quad corners
+        // gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.quad_corners);
+        // gl.enableVertexAttribArray(this.program_info.attribute_locations.a_quad_corner);
+        // gl_ext.vertexAttribDivisorANGLE(this.program_info.attribute_locations.a_quad_corner, 0);
+
+        gl_vao.bindVertexArrayOES(this.vao);
+
+        // // Bind centers
+        // gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.centers);
+        // gl.enableVertexAttribArray(attribute_centers);
+        // instancing_ext.vertexAttribDivisorANGLE(attribute_centers, 1);
+
+        // Bind colors as uniform or varying
+        if (do_array_colors) {
+            // use the attribute values from the color VBO, filled during initialization
+            gl.enableVertexAttribArray(attrs.a_color);
+            //instancing_ext.vertexAttribDivisorANGLE(attribute_colors, 1);
+        } else {
+            // turn off vertexAttribArray and set a constant attribute color
+            gl.disableVertexAttribArray(attrs.a_color);
+            gl.vertexAttrib3fv(attrs.a_color, new Float32Array(fixed_color));
+            //instancing_ext.vertexAttribDivisorANGLE(attribute_colors, 0);
+        }
+
+        // Other uniforms
+        gl.uniform1f(unis.u_point_size, point_size);
+        gl.uniformMatrix4fv(unis.u_projection, false, projection);
+        gl.uniformMatrix4fv(unis.u_modelview, false, modelview);
+
+        // Instancing!
+        const POINT_COUNT = state.positions.length / 2;
+        gl_inst.drawArraysInstancedANGLE(gl.TRIANGLE_FAN, 0, 4, POINT_COUNT);
+    }
+}
+    // glMatrix.mat4.ortho(
+    //     projection_matrix,
+    //     0.0, width,
+    //     0.0, height,
+    //     -1.0, 1.0
+    // );
+    // gl.uniformMatrix4fv(uniform_projection, false, projection_matrix);
+
+    // uniform_modelview = gl.getUniformLocation(global_program, "u_modelview");
+    // glMatrix.mat4.identity(
+    //     modelview_matrix
+    // );
+    // gl.uniformMatrix4fv(uniform_modelview, false, modelview_matrix);
+
+
+// var canvas;  // The canvas where WebGL draws.
+// var gl;  // The WebGL graphics context.
+// var instancing_ext;
+
+// var global_time = 0.0;
+
+// let global_program;
+// let projection_matrix = glMatrix.mat4.create();
+// let modelview_matrix = glMatrix.mat4.create();
+
+// // var uniformWidth;   // Location of uniform named "u_width"
+// // var uniformHeight;  // Location of uniform named "u_height"
+// var uniform_point_size;   // Location of uniform named "u_point_size"
+// let uniform_projection; // projection matrix
+// let uniform_modelview;
+
+// var attribute_quad_corners;
+// var buffer_quad_corners;
+
+// var attribute_centers;  // Location of the attribute named "a_center".
+// var buffer_centers;     // A vertex buffer object to hold the values for coords.
+
+// var attribute_colors;   // Location of the attribute named "a_color".
+// var buffer_colors;     // A vertex buffer object to hold the values for color.
+
+// var animating = false;  // is the animation running?
+
+/* Data for the points, including their coordinates, velocities and colors.
+   The values for the arrays are created during initialization.  The random
+   colors are used when the user selects colored rather than red points.
+   The positions of the points are updated for each frame of the animation. */
+
+// var POINT_COUNT = 1000;
+// var point_centers = new Float32Array( 2*POINT_COUNT );
+// var point_velocities = new Float32Array( 2*POINT_COUNT );
+// var point_random_colors = new Float32Array( 3*POINT_COUNT );
+
+// function create_point_data() { // called during initialization to fill the arrays with data.
+//     var i;
+//     for (i = 0; i < POINT_COUNT; i++) {
+//            // Each point has two coordinates and two velocities.  Velocity number k
+//            // tells how fast coordinate number k changes in pixels per frame.
+//         point_centers[2*i] = canvas.width * Math.random();  // x-coordinate of point
+//         point_centers[2*i+1] = canvas.height * Math.random();  // y-coordinate of point
+//         var randomVelocity = 1 + 3*Math.random();
+//         var randomAngle = 2*Math.PI * Math.random();
+//         point_velocities[2*i] = randomVelocity * Math.cos(randomAngle);
+//         point_velocities[2*i+1] = randomVelocity * Math.sin(randomAngle);
+
+//         point_angles[i] = 2 * Math.PI * Math.random();
+//     }
+//     for (i = 0; i < 3 * POINT_COUNT; i++) {
+//            // The array contains color components, with three numbers per vertex.
+//            // The color components are just random numbers in the range zero to 1.
+//         point_random_colors[i] = Math.random();
+//     }
+// }
+
+// // Boundary conditions. :)
+// function update_point_centers_for_frame() { // called during an animation, before each frame.
+//     let i;
+//     let size = Number(document.getElementById("sizeChoice").value) / 2; // radius
+//     for (i = 0; i < 2*POINT_COUNT; i += 2) { // x-coords
+//         point_centers[i] += point_velocities[i];
+//         if (point_centers[i]-size < 0) {
+//             point_centers[i] = size-(point_centers[i]-size);// move coord back onto canvas
+//             point_velocities[i] = Math.abs(point_velocities[i]); // and make sure point is moving in positive direction
+//         }
+//         else if (point_centers[i]+size > canvas.width) {
+//             point_centers[i] = canvas.width - (point_centers[i]+size - canvas.width) - size;// move coord back onto canvas
+//             point_velocities[i] = -Math.abs(point_velocities[i]); // and make sure point is moving in negative direction
+//         }
+//     }
+//     for (i = 1; i < 2*POINT_COUNT; i += 2) { // y-coords
+//         point_centers[i] += point_velocities[i];
+//         if (point_centers[i]-size < 0) {
+//             point_centers[i] = size-(point_centers[i]-size);// move coord back onto canvas
+//             point_velocities[i] = Math.abs(point_velocities[i]); // and make sure point is moving in positive direction
+//         }
+//         else if (point_centers[i]+size > canvas.height) {
+//             point_centers[i] = canvas.height - (point_centers[i]+size - canvas.height) - size;// move coord back onto canvas
+//             point_velocities[i] = -Math.abs(point_velocities[i]); // and make sure point is moving in negative direction
+//         }
+//     }
+// }
+
+
+//------------------------------------------------------------------------------
+function draw(state) {
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    // Get options from the user interface.
+    const do_random_colors = document.getElementById("colorCheckbox").checked;
+    const point_size = Number(document.getElementById("sizeChoice").value);
+
+    // Bind quad corners
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer_quad_corners);
+    gl.enableVertexAttribArray(attribute_quad_corners);
+    instancing_ext.vertexAttribDivisorANGLE(attribute_quad_corners, 0);
+
+    // Bind and update centers
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer_centers);
+    gl.bufferData(gl.ARRAY_BUFFER, state.positions, gl.STREAM_DRAW);
+    gl.vertexAttribPointer(attribute_centers, 2, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(attribute_centers);
+    instancing_ext.vertexAttribDivisorANGLE(attribute_centers, 1);
+
+    // Bind colors as uniform or varying
+    if (do_random_colors) {
+        // use the attribute values from the color VBO, filled during initialization
+        gl.enableVertexAttribArray(attribute_colors);
+        instancing_ext.vertexAttribDivisorANGLE(attribute_colors, 1);
+    } else {
+        // turn off vertexAttribArray and set a constant attribute color
+        gl.disableVertexAttribArray(attribute_colors);
+        gl.vertexAttrib3f(attribute_colors, 1, 0, 0);
+        instancing_ext.vertexAttribDivisorANGLE(attribute_colors, 0);
+    }
+
+    // Other uniforms
+    gl.uniform1f(uniform_point_size, point_size);
+
+    // Instancing!
+    const POINT_COUNT = state.positions.length / 2;
+    instancing_ext.drawArraysInstancedANGLE(gl.TRIANGLE_FAN, 0, 4, POINT_COUNT);
+}
+
+//------------------------------------------------------------------------------
+function create_program(gl, vertex_shader_source, fragment_shader_source) {
+    const vertex_shader = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vertex_shader, vertex_shader_source);
+    gl.compileShader(vertex_shader);
+    if (!gl.getShaderParameter(vertex_shader, gl.COMPILE_STATUS)) {
+        throw "Error in vertex shader:  " + gl.getShaderInfoLog(vertex_shader);
+    }
+
+    const fragment_shader = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fragment_shader, fragment_shader_source);
+    gl.compileShader(fragment_shader);
+    if (!gl.getShaderParameter(fragment_shader, gl.COMPILE_STATUS)) {
+        throw "Error in fragment shader:  " +
+            gl.getShaderInfoLog(fragment_shader);
+    }
+
+    const program = gl.createProgram();
+    gl.attachShader(program, vertex_shader);
+    gl.attachShader(program, fragment_shader);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        throw "Link error in program:  " + gl.getProgramInfoLog(program);
+    }
+    return program;
+}
+
+//------------------------------------------------------------------------------
+function init_gl(state, width, height) {
+    global_program = create_program(
+        gl,
+        vertex_shader_source,
+        fragment_shader_source
+    );
+    gl.useProgram(global_program);
+    attribute_quad_corners = gl.getAttribLocation(global_program, "a_quad_corner");
+    buffer_quad_corners = gl.createBuffer();
+    attribute_centers = gl.getAttribLocation(global_program, "a_center");
+    buffer_centers = gl.createBuffer();
+    attribute_colors = gl.getAttribLocation(global_program, "a_color");
+    buffer_colors = gl.createBuffer();
+    uniform_projection = gl.getUniformLocation(global_program, "u_projection");
+    glMatrix.mat4.ortho(
+        projection_matrix,
+        0.0, width,
+        0.0, height,
+        -1.0, 1.0
+    );
+    gl.uniformMatrix4fv(uniform_projection, false, projection_matrix);
+
+    uniform_modelview = gl.getUniformLocation(global_program, "u_modelview");
+    glMatrix.mat4.identity(
+        modelview_matrix
+    );
+    gl.uniformMatrix4fv(uniform_modelview, false, modelview_matrix);
+
+    uniform_point_size = gl.getUniformLocation(global_program, "u_point_size");
+
+    // Make quad corners
+    const quad_corners = new Float32Array( [-1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0])
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer_quad_corners);
+    gl.bufferData(gl.ARRAY_BUFFER, quad_corners, gl.STATIC_DRAW);
+    gl.vertexAttribPointer(attribute_quad_corners, 2, gl.FLOAT, false, 0, 0);
+    instancing_ext.vertexAttribDivisorANGLE(attribute_quad_corners, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer_colors);
+    gl.bufferData(gl.ARRAY_BUFFER, state.colors, gl.STATIC_DRAW);
+    gl.vertexAttribPointer(attribute_colors, 3, gl.FLOAT, false, 0, 0);
+}
+
+/*------------ Animation support ------------*/
+let previous_time = performance.now();
+
+let global_state;
+
+let accumulated_time = 0.0;
+function do_frame(current_time) {
+    let delta_time = current_time - previous_time;
+    previous_time = current_time;
+    if (animating) {
+        // glMatrix.mat4.identity(modelview_matrix);
+        const scale = 1.0 + 0.95 * Math.sin(accumulated_time);
+        const scale_vec = glMatrix.vec3.fromValues(scale, scale, scale);
+        glMatrix.mat4.fromScaling(
+            modelview_matrix,
+            scale_vec
+        );
+        gl.uniformMatrix4fv(uniform_modelview, false, modelview_matrix);
+
+
+        let radius = Number(document.getElementById("sizeChoice").value) / 2;
+
+        simple_simulation_step(global_state, 0.001 * delta_time,
+                               radius, canvas.width, canvas.height)
+        draw(global_state, canvas.width, canvas.height);
+        requestAnimationFrame(do_frame);
+
+        accumulated_time += 0.001 * delta_time;
+    }
+}
+
+function do_animation_checkbox() {
+    var anim = document.getElementById("animateCheckbox").checked;
+    if (anim != animating) {
+        animating = anim;
+        if (animating) {
+            do_frame(performance.now());
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Initialize the program.
+// This function is called after the page has been loaded.
+function init() {
+    try {
+        canvas = document.getElementById("webglcanvas");
+        var options = {
+            // no need for alpha channel or depth buffer in this program
+            alpha: false,
+            depth: false,
+        };
+        gl =
+            canvas.getContext("webgl", options) ||
+            canvas.getContext("experimental-webgl", options);
+        if (!gl) {
+            throw "Browser does not support WebGL";
+        }
+
+        instancing_ext = gl.getExtension("ANGLE_instanced_arrays");
+        if (!instancing_ext) {
+            throw "Browser does not support ANGLE_instanced_arrays";
+        }
+    } catch (e) {
+        document.getElementById("canvas-holder").innerHTML =
+            "<p>Sorry, could not get a WebGL graphics context.</p>";
+        return;
+    }
+
+    global_state = new Simulation_state(1000);
+    random_box_initial_state(global_state, canvas.width, canvas.height);
+
+    try {
+        init_gl(global_state, canvas.width, canvas.height);
+    } catch (e) {
+        document.getElementById("canvas-holder").innerHTML =
+            "<p>Sorry, could not initialize the WebGL graphics context:" +
+            e +
+            "</p>";
+        return;
+    }
+    document.getElementById("animateCheckbox").checked = true;
+    document.getElementById("colorCheckbox").checked = true;
+    document.getElementById("sizeChoice").value = "32";
+    document.getElementById("animateCheckbox").onchange = do_animation_checkbox;
+    document.getElementById("colorCheckbox").onchange = function() {
+        if (!animating) {
+            draw(global_state, canvas.width, canvas.height);
+        }
+    };
+    document.getElementById("sizeChoice").onchange = function() {
+        if (!animating) {
+            draw(global_state, canvas.width, canvas.height);
+        }
+    };
+    do_animation_checkbox();
+}
+
+</script>
+</head>
+<body onload="init()">
+
+<h2>Moving Sprites with the WebGL drawArraysInstanced primitive</h2>
+
+<noscript><p><b>Sorry, but this page requires JavaScript.</b></p></noscript>
+
+<p>
+    <label><b><input type="checkbox" id="animateCheckbox">&nbsp;Animate</b></label>
+    <label><b><input type="checkbox" id="colorCheckbox">&nbsp;Random&nbsp;Colors</b></label>
+    <label><b>Point Size:</b>&nbsp;<select id="sizeChoice">
+        <option value="16">Small</option>
+        <option value="32">Medium</option>
+        <option value="64">Large</option>
+    </select></label>
+</p>
+
+<div id="canvas-holder">
+<canvas id="webglcanvas" width="800" height="600"></canvas>
+</div>
+
+</body>
+</html>
