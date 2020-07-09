@@ -9,19 +9,38 @@
 <head>
 <meta charset="UTF-8">
 <link rel="shortcut icon" href="favicon.ico" type="image/x-icon" />
-<title>Moving Sprites in WebGL</title>
+<title>Sprite Drawing of Simulation Data WebGL</title>
 <style>
     label {
         margin-left: 30px;
     }
 </style>
+</head>
+
+<body>
+
+<h2>Moving Sprites with the WebGL drawArraysInstanced primitive</h2>
+
+<noscript><p><b>Sorry, but this page requires JavaScript.</b></p></noscript>
+
+<p>
+    <label><b><input type="checkbox" id="animateCheckbox">&nbsp;Animate</b></label>
+    <label><b><input type="checkbox" id="colorCheckbox">&nbsp;Random&nbsp;Colors</b></label>
+    <label><b>Point Size:</b>&nbsp;<select id="sizeChoice">
+        <option value="16">Small</option>
+        <option value="32">Medium</option>
+        <option value="64">Large</option>
+    </select></label>
+</p>
+
+<div id="canvas-holder">
+<canvas id="webglcanvas" width="800" height="600"></canvas>
+</div>
 
 
-<script src="gl-matrix-min.js"></script>
-<script src="seedrandom.js"></script>
-<script src="sprite_renderer.js"></script>
-<script src="simulation.js"></script>
-<script>
+<script type="module">
+import {Simple_simulation} from "./simulation.js";
+import {get_gl_context_bundle, Simple_simulation_renderer} from "./sprite_renderer.js";
 
 "use strict";
 //------------------------------------------------------------------------------
@@ -73,27 +92,9 @@ function init() {
     requestAnimationFrame(do_frame);
 }
 
+init();
+
 </script>
-</head>
-<body onload="init()">
-
-<h2>Moving Sprites with the WebGL drawArraysInstanced primitive</h2>
-
-<noscript><p><b>Sorry, but this page requires JavaScript.</b></p></noscript>
-
-<p>
-    <label><b><input type="checkbox" id="animateCheckbox">&nbsp;Animate</b></label>
-    <label><b><input type="checkbox" id="colorCheckbox">&nbsp;Random&nbsp;Colors</b></label>
-    <label><b>Point Size:</b>&nbsp;<select id="sizeChoice">
-        <option value="16">Small</option>
-        <option value="32">Medium</option>
-        <option value="64">Large</option>
-    </select></label>
-</p>
-
-<div id="canvas-holder">
-<canvas id="webglcanvas" width="800" height="600"></canvas>
-</div>
 
 </body>
 </html>

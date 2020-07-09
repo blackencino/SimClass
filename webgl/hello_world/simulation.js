@@ -1,5 +1,6 @@
-
 "use strict";
+
+import "./seedrandom.js";
 
 //------------------------------------------------------------------------------
 function create_simulation_state(count) {
@@ -175,7 +176,10 @@ function world_walls_initial_solid_state({
 
         for (bx = 0; bx < N; ++bx) {
             const bxf = (bx + 1) / (N + 1);
-            tiny_block([bxf + my_rng_dist(), byf + my_rng_dist()], my_rng_dist());
+            tiny_block(
+                [bxf + my_rng_dist(), byf + my_rng_dist()],
+                my_rng_dist()
+            );
         }
     }
 
@@ -204,7 +208,7 @@ function world_walls_initial_solid_state({
     };
 }
 //------------------------------------------------------------------------------
-class Simple_simulation {
+export class Simple_simulation {
     constructor({ count = 1000, support = 0.01, width = 512, height = 512 }) {
         this.support = support;
         const HHalf = 0.5 * support;
@@ -214,8 +218,8 @@ class Simple_simulation {
         this.height = height;
 
         // Make fluid state
-        this.state = create_simulation_state(count);
-        random_box_initial_state(this.state, { width: width, height: height });
+        this.fluid_state = create_simulation_state(count);
+        random_box_initial_state(this.fluid_state, { width: width, height: height });
 
         // Make solid state
         this.solid_state = world_walls_initial_solid_state({
@@ -228,7 +232,7 @@ class Simple_simulation {
     }
 
     step(delta_time) {
-        simple_simulation_step(this.state, {
+        simple_simulation_step(this.fluid_state, {
             delta_time: delta_time,
             radius: this.radius,
             width: this.width,
@@ -236,8 +240,3 @@ class Simple_simulation {
         });
     }
 }
-
-module.exports = {
-    Simple_simulation
-};
-

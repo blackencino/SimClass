@@ -1,8 +1,9 @@
-
 "use strict";
 
+import "./gl-matrix-min.js";
+
 //------------------------------------------------------------------------------
-function get_gl_context_bundle(canvas) {
+export function get_gl_context_bundle(canvas) {
     const options = {
         // no need for alpha channel or depth buffer in this program
         alpha: false,
@@ -90,28 +91,25 @@ function init_program_info(gl) {
             gl_FragColor = vec4(v_color, 1.0);
         }`;
 
-    const program = create_program(
-        gl,
-        vertex_source,
-        fragment_source);
+    const program = create_program(gl, vertex_source, fragment_source);
 
     return {
         program: program,
         attribute_locations: {
             a_quad_corner: gl.getAttribLocation(program, "a_quad_corner"),
             a_center: gl.getAttribLocation(program, "a_center"),
-            a_color: gl.getAttribLocation(program, "a_color")
+            a_color: gl.getAttribLocation(program, "a_color"),
         },
         uniform_locations: {
             u_projection: gl.getUniformLocation(program, "u_projection"),
             u_modelview: gl.getUniformLocation(program, "u_modelview"),
-            u_point_size: gl.getUniformLocation(program, "u_point_size")
-        }
+            u_point_size: gl.getUniformLocation(program, "u_point_size"),
+        },
     };
 }
 //------------------------------------------------------------------------------
-class Sprite_renderer {
-    constructor(gl_context_bundle, program_info, state) {
+export class Sprite_renderer {
+    constructor(gl_context_bundle, program_info, { positions, colors }) {
         this.gl_context_bundle = gl_context_bundle;
         const gl = this.gl_context_bundle.gl;
         const gl_inst = this.gl_context_bundle.instancing;
@@ -124,7 +122,7 @@ class Sprite_renderer {
             colors: gl.createBuffer(),
         };
 
-        this.point_count = state.positions.length / 2;
+        this.point_count = positions.length / 2;
 
         const attrs = this.program_info.attribute_locations;
         const unis = this.program_info.uniform_locations;
@@ -168,7 +166,7 @@ class Sprite_renderer {
 
         bind({
             buffer: this.buffers.centers,
-            data: state.positions,
+            data: positions,
             draw_type: gl.STREAM_DRAW,
             attribute: attrs.a_center,
             dimension: 2,
@@ -177,18 +175,42 @@ class Sprite_renderer {
 
         bind({
             buffer: this.buffers.colors,
-            data: state.colors,
+            data: colors,
             attribute: attrs.a_color,
             dimension: 3,
             divisor: 1,
         });
     }
 
-    update_buffers(state) {
-        //assert(state.positions.length / 2 === this.point_count);
+    // Right now only positions are updated - we'll change that
+    update_buffers({ positions, colors = [] }) {
         const gl = this.gl_context_bundle.gl;
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.centers);
-        gl.bufferData(gl.ARRAY_BUFFER, state.positions, gl.STREAM_DRAW);
+
+        const input_count = positions.length / 2;
+        if (input_count != this.point_count) {
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.centers);
+            gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STREAM_DRAW);
+
+            if (colors.length != 0) {
+                if (colors.length < input_count * 3) {
+                    throw "Invalid colors array length";
+                }
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.colors);
+                gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STREAM_DRAW);
+            }
+            this.point_count = input_count;
+        } else {
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.centers);
+            gl.bufferSubData(gl.ARRAY_BUFFER, 0, positions);
+
+            if (colors.length != 0) {
+                if (colors.length < input_count * 3) {
+                    throw "Invalid colors array length";
+                }
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.colors);
+                gl.bufferSubData(gl.ARRAY_BUFFER, 0, colors);
+            }
+        }
     }
 
     render({
@@ -234,16 +256,16 @@ class Sprite_renderer {
     }
 }
 //------------------------------------------------------------------------------
-class Simple_simulation_renderer {
-    constructor(gl_context_bundle, simple_simulation) {
+export class Simple_simulation_renderer {
+    constructor(gl_context_bundle,
+                {fluid_state, solid_state, radius}) {
         this.gl_context_bundle = gl_context_bundle;
         this.program_info = init_program_info(this.gl_context_bundle.gl);
-        this.simulation = simple_simulation;
 
         this.fluid_renderer = new Sprite_renderer(
             this.gl_context_bundle,
             this.program_info,
-            this.simulation.state
+            fluid_state
         );
         this.fluid_modelview = glMatrix.mat4.create();
         glMatrix.mat4.identity(this.fluid_modelview);
@@ -251,15 +273,18 @@ class Simple_simulation_renderer {
         this.solid_renderer = new Sprite_renderer(
             this.gl_context_bundle,
             this.program_info,
-            this.simulation.solid_state
+            solid_state
         );
         this.solid_modelview = glMatrix.mat4.create();
         glMatrix.mat4.identity(this.solid_modelview);
+
+        this.radius = radius;
     }
 
-    update_buffers(simulation) {
-        this.fluid_renderer.update_buffers(simulation.state);
-        //this.solid_renderer.update_buffers(simulation.solid_state);
+    update_buffers({fluid_state}) {
+        this.fluid_renderer.update_buffers({positions: fluid_state.positions,
+            colors: []});
+        // this.solid_renderer.update_buffers(simulation.solid_state);
     }
 
     render({
@@ -276,11 +301,19 @@ class Simple_simulation_renderer {
 
         const projection = glMatrix.mat4.create();
         const border = 50.0;
-        glMatrix.mat4.ortho(projection, -border, width + border, -border, height + border, -1.0, 1.0);
+        glMatrix.mat4.ortho(
+            projection,
+            -border,
+            width + border,
+            -border,
+            height + border,
+            -1.0,
+            1.0
+        );
 
         this.solid_renderer.render({
             do_array_colors: do_array_colors,
-            point_size: 2.0 * point_size_gain * this.simulation.radius,
+            point_size: 2.0 * point_size_gain * this.radius,
             projection: projection,
             modelview: this.solid_modelview,
             fixed_color: solid_fixed_color,
@@ -288,16 +321,10 @@ class Simple_simulation_renderer {
 
         this.fluid_renderer.render({
             do_array_colors: do_array_colors,
-            point_size: 2.0 * point_size_gain * this.simulation.radius,
+            point_size: 2.0 * point_size_gain * this.radius,
             projection: projection,
             modelview: this.solid_modelview,
             fixed_color: fluid_fixed_color,
         });
     }
 }
-
-module.exports = {
-    get_gl_context_bundle,
-    Sprite_renderer,
-    Simple_simulation_renderer
-};
