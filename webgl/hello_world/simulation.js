@@ -24,8 +24,7 @@ function random_box_initial_state(
 ) {
     const POINT_COUNT = state.positions.length / 2;
     const my_rng = new Math.seedrandom(seed);
-    let i;
-    for (i = 0; i < POINT_COUNT; ++i) {
+    for (let i = 0; i < POINT_COUNT; ++i) {
         state.ids[i] = i;
 
         // Random point in the width/height box
@@ -37,7 +36,7 @@ function random_box_initial_state(
         state.velocities[2 * i] = speed * Math.cos(angle);
         state.velocities[2 * i + 1] = speed * Math.sin(angle);
     }
-    for (i = 0; i < 3 * POINT_COUNT; ++i) {
+    for (let i = 0; i < 3 * POINT_COUNT; ++i) {
         state.colors[i] = my_rng();
     }
 }
@@ -47,9 +46,8 @@ function simple_simulation_step(
     { delta_time = 1.0, radius = 1.0, width = 512, height = 512 } = {}
 ) {
     const POINT_COUNT = state.positions.length / 2;
-    let i;
     // X-coordinates
-    for (i = 0; i < 2 * POINT_COUNT; i += 2) {
+    for (let i = 0; i < 2 * POINT_COUNT; i += 2) {
         state.positions[i] += delta_time * state.velocities[i];
         if (state.positions[i] - radius < 0) {
             // Move point back onto rectangle and make sure it is moving
@@ -65,7 +63,7 @@ function simple_simulation_step(
         }
     }
     // Y-coordinates
-    for (i = 1; i < 2 * POINT_COUNT; i += 2) {
+    for (let i = 1; i < 2 * POINT_COUNT; i += 2) {
         state.positions[i] += delta_time * state.velocities[i];
         if (state.positions[i] - radius < 0) {
             // Move point back onto rectangle and make sure it is moving
@@ -169,12 +167,10 @@ function world_walls_initial_solid_state({
     const my_rng_dist = () => 0.06 * (2 * my_rng() - 1);
 
     const N = 4;
-    let bx;
-    let by;
-    for (by = 0; by < N; ++by) {
+    for (let by = 0; by < N; ++by) {
         const byf = (by + 1) / (N + 1);
 
-        for (bx = 0; bx < N; ++bx) {
+        for (let bx = 0; bx < N; ++bx) {
             const bxf = (bx + 1) / (N + 1);
             tiny_block(
                 [bxf + my_rng_dist(), byf + my_rng_dist()],
@@ -188,8 +184,7 @@ function world_walls_initial_solid_state({
     const ids = new Uint32Array(count);
     const velocities = new Float32Array(count * 2);
     const colors = new Float32Array(count * 3);
-    let i;
-    for (i = 0; i < count; ++i) {
+    for (let i = 0; i < count; ++i) {
         ids[i] = i;
 
         velocities[2 * i] = 0.0;
