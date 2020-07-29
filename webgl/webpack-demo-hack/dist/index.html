@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Getting Started HACK</title>
+  </head>
+  <body>
+
+
+    <h2>Smoothed Particle Hydrodynamics</h2>
+
+    <noscript><p><b>Sorry, but this page requires JavaScript.</b></p></noscript>
+
+    <p>
+        <label><b><input type="checkbox" id="animateCheckbox">&nbsp;Animate</b></label>
+        <label><b><input type="checkbox" id="colorCheckbox">&nbsp;Random&nbsp;Colors</b></label>
+        <label><b>Point Size:</b>&nbsp;<select id="sizeChoice">
+            <option value="0.5">Small</option>
+            <option value="1.0">Medium</option>
+            <option value="2.0">Large</option>
+        </select></label>
+    </p>
+
+    <div id="canvas-holder">
+    <canvas id="webglcanvas" width="800" height="600"></canvas>
+    </div>
+
+
+    <script src="bundle.js"></script>
+  </body>
+</html>
