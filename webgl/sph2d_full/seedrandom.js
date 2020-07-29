@@ -230,14 +230,17 @@ mixkey(math.random(), pool);
 // either convention.
 //
 if ((typeof module) == 'object' && module.exports) {
+    console.log("A");
   module.exports = seedrandom;
   // When in node.js, try using crypto package for autoseeding.
   try {
     nodecrypto = require('crypto');
   } catch (ex) {}
 } else if ((typeof define) == 'function' && define.amd) {
+    console.log("B");
   define(function() { return seedrandom; });
 } else {
+    console.log("C");
   // When included as a plain script, set up Math.seedrandom global.
   math['seed' + rngname] = seedrandom;
 }

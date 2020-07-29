@@ -37,102 +37,11 @@
 <canvas id="webglcanvas" width="800" height="600"></canvas>
 </div>
 
-<script type="module">
-import {Simple_simulation} from "./simulation.js";
-import {get_gl_context_bundle, Simple_simulation_renderer} from "./sprite_renderer.js";
-
-"use strict";
-//------------------------------------------------------------------------------
-// Initialize the program.
-// This function is called after the page has been loaded.
-function init() {
-    var canvas;
-    var gl_context_bundle;
-    var simulation;
-    var simulation_renderer;
-    try {
-        canvas = document.getElementById("webglcanvas");
-        gl_context_bundle = get_gl_context_bundle(canvas);
-    } catch (e) {
-        document.getElementById("canvas-holder").innerHTML =
-            "<p>Sorry, could not get a WebGL graphics context.</p>";
-        return;
-    }
-
-    simulation = new Simple_simulation({
-        count: 1000,
-        support: 15.0,
-        width: canvas.width,
-        height: canvas.height,
-    });
-
-    try {
-        simulation_renderer = new Simple_simulation_renderer(
-            gl_context_bundle,
-            simulation
-        );
-    } catch (e) {
-        document.getElementById("canvas-holder").innerHTML =
-            "<p>Sorry, could not initialize the WebGL graphics context:" +
-            e +
-            "</p>";
-        return;
-    }
-
-    var animate_checkbox = document.getElementById("animateCheckbox");
-    var color_checkbox = document.getElementById("colorCheckbox");
-    var size_choice = document.getElementById("sizeChoice");
-    var animating = true;
-
-    animate_checkbox.checked = true;
-    color_checkbox.checked = true;
-    size_choice.value = "1.0";
-
-    var prev_time = performance.now();
-    var do_frame = function(new_time) {
-        if (new_time > prev_time) {
-            const delta_time = new_time - prev_time;
-            prev_time = new_time;
-            const delta_time_seconds = Math.min(3.0, 0.001 * delta_time);
-            simulation.step(delta_time_seconds);
-            simulation_renderer.update_buffers(simulation);
-        }
-
-        simulation_renderer.render({
-            do_array_colors: Boolean(color_checkbox.checked),
-            point_size_gain: Number(size_choice.value),
-            width: canvas.width,
-            height: canvas.height,
-        });
-
-        if (Boolean(animate_checkbox.checked)) {
-            requestAnimationFrame(do_frame);
-        }
-    };
-
-    var regular_change = () => {
-        if (!animate_checkbox.checked) {
-            prev_time = performance.now();
-            do_frame(prev_time);
-        }
-    };
-
-    color_checkbox.onchange = regular_change;
-    size_choice.onchange = regular_change;
-
-    animate_checkbox.onchange = () => {
-        if (animate_checkbox.checked) {
-            prev_time = performance.now();
-            do_frame(prev_time);
-        }
-    };
-
-    prev_time = performance.now();
-    do_frame(prev_time);
-}
-
-init();
-</script>
+<script src="gl-matrix.js"></script>
+<script src="seedrandom.js"></script>
+<script src="sprite_renderer_ts.js"></script>
+<script src="simulation_ts.js"></script>
+<script src="top_ts.js"></script>
 
 </body>
 </html>

@@ -1,0 +1,9 @@
+{
+  "name": "sph2d_full",
+  "version": "0.0.1",
+  "description": "Sph2D implementation",
+  "devDependencies": {
+    "@types/seedrandom": ">=2.4.28",
+    "@types/gl-matrix": ">=2.4.5"
+  }
+}
