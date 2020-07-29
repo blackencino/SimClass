@@ -1,9 +1,9 @@
-// import { Simple_simulation } from "./simulation_ts";
-// import {
-//     Gl_context_bundle,
-//     get_gl_context_bundle,
-//     Simple_simulation_renderer,
-// } from "./sprite_renderer_ts";
+import {
+    Gl_context_bundle,
+    get_gl_context_bundle,
+    Simple_simulation_renderer,
+} from "./sprite_renderer";
+import { Simple_simulation } from "./simulation";
 
 //------------------------------------------------------------------------------
 // Initialize the program.
@@ -113,3 +113,4 @@ function init() {
 }
 
 init();
+

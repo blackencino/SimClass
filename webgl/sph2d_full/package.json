@@ -1,9 +1,27 @@
 {
   "name": "sph2d_full",
   "version": "0.0.1",
-  "description": "Sph2D implementation",
+  "description": "",
+  "private": true,
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "webpack"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
   "devDependencies": {
-    "@types/seedrandom": ">=2.4.28",
-    "@types/gl-matrix": ">=2.4.5"
+    "@types/es6-shim": "^0.31.40",
+    "@types/gl-matrix": "^2.4.5",
+    "@types/seedrandom": "^2.4.28",
+    "ts-loader": "^8.0.1",
+    "typescript": "^3.9.7",
+    "webpack": "^4.44.0",
+    "webpack-cli": "^3.3.12"
+  },
+  "dependencies": {
+    "es6-shim": "^0.35.5",
+    "gl-matrix": "^3.3.0",
+    "seedrandom": "^3.0.5"
   }
 }

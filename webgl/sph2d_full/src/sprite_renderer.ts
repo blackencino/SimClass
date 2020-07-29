@@ -1,17 +1,41 @@
-"use strict";
+//import glMatrix = require("gl-matrix");
+//import from './gl-matrix.js'
 
-import "./gl-matrix.js";
+import {
+    glMatrix,
+    vec2,
+    mat2,
+    mat3,
+    mat4,
+    vec3,
+    vec4,
+    mat2d,
+    quat,
+} from "gl-matrix";
+
+export class Gl_context_bundle {
+    constructor(
+        public readonly gl: WebGLRenderingContext,
+        public readonly instancing: ANGLE_instanced_arrays,
+        public readonly vertex_array_objects: OES_vertex_array_object
+    ) {}
+}
 
 //------------------------------------------------------------------------------
-export function get_gl_context_bundle(canvas) {
+export function get_gl_context_bundle(
+    canvas: HTMLCanvasElement
+): Gl_context_bundle {
     const options = {
         // no need for alpha channel or depth buffer in this program
         alpha: false,
         depth: false,
     };
     const gl =
-        canvas.getContext("webgl", options) ||
-        canvas.getContext("experimental-webgl", options);
+        (canvas.getContext("webgl", options) as WebGLRenderingContext) ||
+        (canvas.getContext(
+            "experimental-webgl",
+            options
+        ) as WebGLRenderingContext);
     if (!gl) {
         throw "Browser does not support WebGL";
     }
@@ -26,16 +50,19 @@ export function get_gl_context_bundle(canvas) {
         throw "Browser does not support OES_vertex_array_object";
     }
 
-    return {
-        gl: gl,
-        instancing: instancing_ext,
-        vertex_array_objects: vertex_array_objects_ext,
-    };
+    return new Gl_context_bundle(gl, instancing_ext, vertex_array_objects_ext);
 }
 
 //------------------------------------------------------------------------------
-function create_program(gl, vertex_shader_source, fragment_shader_source) {
+function create_program(
+    gl: WebGLRenderingContext,
+    vertex_shader_source: string,
+    fragment_shader_source: string
+): WebGLProgram {
     const vertex_shader = gl.createShader(gl.VERTEX_SHADER);
+    if (!vertex_shader) {
+        throw "Could not create vertex shader";
+    }
     gl.shaderSource(vertex_shader, vertex_shader_source);
     gl.compileShader(vertex_shader);
     if (!gl.getShaderParameter(vertex_shader, gl.COMPILE_STATUS)) {
@@ -43,6 +70,9 @@ function create_program(gl, vertex_shader_source, fragment_shader_source) {
     }
 
     const fragment_shader = gl.createShader(gl.FRAGMENT_SHADER);
+    if (!fragment_shader) {
+        throw "Could not create fragment shader";
+    }
     gl.shaderSource(fragment_shader, fragment_shader_source);
     gl.compileShader(fragment_shader);
     if (!gl.getShaderParameter(fragment_shader, gl.COMPILE_STATUS)) {
@@ -51,6 +81,9 @@ function create_program(gl, vertex_shader_source, fragment_shader_source) {
     }
 
     const program = gl.createProgram();
+    if (!program) {
+        throw "Could not create GL program";
+    }
     gl.attachShader(program, vertex_shader);
     gl.attachShader(program, fragment_shader);
     gl.linkProgram(program);
@@ -60,9 +93,21 @@ function create_program(gl, vertex_shader_source, fragment_shader_source) {
     return program;
 }
 
-//------------------------------------------------------------------------------
-function init_program_info(gl) {
-    const vertex_source = `
+class Program_info {
+    program: WebGLProgram;
+    attribute_locations: {
+        a_quad_corner: GLint;
+        a_center: GLint;
+        a_color: GLint;
+    };
+    uniform_locations: {
+        u_projection: WebGLUniformLocation | null;
+        u_modelview: WebGLUniformLocation | null;
+        u_point_size: WebGLUniformLocation | null;
+    };
+
+    constructor(gl: WebGLRenderingContext) {
+        const vertex_source = `
         attribute vec2 a_quad_corner;
         attribute vec2 a_center;
         attribute vec3 a_color;
@@ -79,7 +124,7 @@ function init_program_info(gl) {
             v_color = a_color;
         }`;
 
-    const fragment_source = `
+        const fragment_source = `
         precision mediump float;
         varying vec3 v_color;
         varying vec2 v_point_coord;
@@ -91,35 +136,62 @@ function init_program_info(gl) {
             gl_FragColor = vec4(v_color, 1.0);
         }`;
 
-    const program = create_program(gl, vertex_source, fragment_source);
-
-    return {
-        program: program,
-        attribute_locations: {
-            a_quad_corner: gl.getAttribLocation(program, "a_quad_corner"),
-            a_center: gl.getAttribLocation(program, "a_center"),
-            a_color: gl.getAttribLocation(program, "a_color"),
-        },
-        uniform_locations: {
-            u_projection: gl.getUniformLocation(program, "u_projection"),
-            u_modelview: gl.getUniformLocation(program, "u_modelview"),
-            u_point_size: gl.getUniformLocation(program, "u_point_size"),
-        },
-    };
+        this.program = create_program(gl, vertex_source, fragment_source);
+        this.attribute_locations = {
+            a_quad_corner: gl.getAttribLocation(this.program, "a_quad_corner"),
+            a_center: gl.getAttribLocation(this.program, "a_center"),
+            a_color: gl.getAttribLocation(this.program, "a_color"),
+        };
+        this.uniform_locations = {
+            u_projection: gl.getUniformLocation(this.program, "u_projection"),
+            u_modelview: gl.getUniformLocation(this.program, "u_modelview"),
+            u_point_size: gl.getUniformLocation(this.program, "u_point_size"),
+        };
+    }
 }
 //------------------------------------------------------------------------------
 export class Sprite_renderer {
-    constructor(gl_context_bundle, program_info, { positions, colors }) {
+    buffers: {
+        quad_corners: WebGLBuffer;
+        centers: WebGLBuffer;
+        colors: WebGLBuffer;
+    };
+
+    point_count: number;
+
+    vao: WebGLVertexArrayObjectOES;
+
+    constructor(
+        public readonly gl_context_bundle: Gl_context_bundle,
+        public readonly program_info: Program_info,
+        positions: Float32Array,
+        colors: Float32Array
+    ) {
         this.gl_context_bundle = gl_context_bundle;
         const gl = this.gl_context_bundle.gl;
         const gl_inst = this.gl_context_bundle.instancing;
         const gl_vao = this.gl_context_bundle.vertex_array_objects;
 
         this.program_info = program_info;
+        const quad_corners_buffer = gl.createBuffer();
+        if (!quad_corners_buffer) {
+            throw "Could not create quad_corners buffer";
+        }
+
+        const centers_buffer = gl.createBuffer();
+        if (!centers_buffer) {
+            throw "Could not create centers buffer";
+        }
+
+        const colors_buffer = gl.createBuffer();
+        if (!colors_buffer) {
+            throw "Could not create colors_buffer";
+        }
+
         this.buffers = {
-            quad_corners: gl.createBuffer(),
-            centers: gl.createBuffer(),
-            colors: gl.createBuffer(),
+            quad_corners: quad_corners_buffer,
+            centers: centers_buffer,
+            colors: colors_buffer,
         };
 
         this.point_count = positions.length / 2;
@@ -127,17 +199,22 @@ export class Sprite_renderer {
         const attrs = this.program_info.attribute_locations;
         const unis = this.program_info.uniform_locations;
 
-        this.vao = gl_vao.createVertexArrayOES();
+        const vao = gl_vao.createVertexArrayOES();
+        if (!vao) {
+            throw "Could not create vertex array object";
+        }
+        this.vao = vao;
+
         gl_vao.bindVertexArrayOES(this.vao);
 
-        const bind = ({
-            buffer,
-            data,
-            draw_type = gl.STATIC_DRAW,
-            attribute,
-            dimension,
-            divisor,
-        }) => {
+        const bind = (
+            buffer: WebGLBuffer,
+            data: Float32Array,
+            draw_type: number,
+            attribute: number,
+            dimension: number,
+            divisor: number
+        ) => {
             gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
             gl.bufferData(gl.ARRAY_BUFFER, data, draw_type);
             gl.vertexAttribPointer(attribute, dimension, gl.FLOAT, false, 0, 0);
@@ -146,7 +223,7 @@ export class Sprite_renderer {
         };
 
         // Make quad corners
-        const quad_corners = new Float32Array([
+        const quad_corners_data = new Float32Array([
             -1.0,
             -1.0,
             1.0,
@@ -156,34 +233,32 @@ export class Sprite_renderer {
             -1.0,
             1.0,
         ]);
-        bind({
-            buffer: this.buffers.quad_corners,
-            data: quad_corners,
-            attribute: attrs.a_quad_corner,
-            dimension: 2,
-            divisor: 0,
-        });
+        bind(
+            this.buffers.quad_corners,
+            quad_corners_data,
+            gl.STATIC_DRAW,
+            attrs.a_quad_corner,
+            2,
+            0
+        );
 
-        bind({
-            buffer: this.buffers.centers,
-            data: positions,
-            draw_type: gl.STREAM_DRAW,
-            attribute: attrs.a_center,
-            dimension: 2,
-            divisor: 1,
-        });
+        bind(
+            this.buffers.centers,
+            positions,
+            gl.STREAM_DRAW,
+            attrs.a_center,
+            2,
+            1
+        );
 
-        bind({
-            buffer: this.buffers.colors,
-            data: colors,
-            attribute: attrs.a_color,
-            dimension: 3,
-            divisor: 1,
-        });
+        bind(this.buffers.colors, colors, gl.STREAM_DRAW, attrs.a_color, 3, 1);
     }
 
     // Right now only positions are updated - we'll change that
-    update_buffers({ positions, colors = [] }) {
+    update_buffers(
+        positions: Float32Array,
+        colors: Float32Array | null = null
+    ) {
         const gl = this.gl_context_bundle.gl;
 
         const input_count = positions.length / 2;
@@ -191,7 +266,7 @@ export class Sprite_renderer {
             gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.centers);
             gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STREAM_DRAW);
 
-            if (colors.length != 0) {
+            if (colors) {
                 if (colors.length < input_count * 3) {
                     throw "Invalid colors array length";
                 }
@@ -203,7 +278,7 @@ export class Sprite_renderer {
             gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.centers);
             gl.bufferSubData(gl.ARRAY_BUFFER, 0, positions);
 
-            if (colors.length != 0) {
+            if (colors) {
                 if (colors.length < input_count * 3) {
                     throw "Invalid colors array length";
                 }
@@ -213,13 +288,13 @@ export class Sprite_renderer {
         }
     }
 
-    render({
-        do_array_colors = true,
-        point_size = 10.0,
-        projection,
-        modelview,
-        fixed_color = [1, 0, 0],
-    } = {}) {
+    render(
+        do_array_colors: boolean,
+        point_size: number,
+        projection: mat4,
+        modelview: mat4,
+        fixed_color: Array<number> = [1, 0, 0]
+    ) {
         const gl = this.gl_context_bundle.gl;
         const gl_inst = this.gl_context_bundle.instancing;
         const gl_vao = this.gl_context_bundle.vertex_array_objects;
@@ -255,53 +330,71 @@ export class Sprite_renderer {
         );
     }
 }
+
+//------------------------------------------------------------------------------
+interface Physical_state {
+    positions: Float32Array;
+    colors: Float32Array;
+}
+
 //------------------------------------------------------------------------------
 export class Simple_simulation_renderer {
-    constructor(gl_context_bundle,
-                {fluid_state, solid_state, radius}) {
-        this.gl_context_bundle = gl_context_bundle;
-        this.program_info = init_program_info(this.gl_context_bundle.gl);
+    program_info: Program_info;
+    solid_renderer: Sprite_renderer;
+    solid_modelview: mat4;
+    fluid_renderer: Sprite_renderer;
+    fluid_modelview: mat4;
 
-        this.fluid_renderer = new Sprite_renderer(
-            this.gl_context_bundle,
-            this.program_info,
-            fluid_state
-        );
-        this.fluid_modelview = glMatrix.mat4.create();
-        glMatrix.mat4.identity(this.fluid_modelview);
+    constructor(
+        public readonly gl_context_bundle: Gl_context_bundle,
+        solid_state: Physical_state,
+        fluid_state: Physical_state,
+        public readonly radius: number
+    ) {
+        this.gl_context_bundle = gl_context_bundle;
+        this.program_info = new Program_info(this.gl_context_bundle.gl);
 
         this.solid_renderer = new Sprite_renderer(
             this.gl_context_bundle,
             this.program_info,
-            solid_state
+            solid_state.positions,
+            solid_state.colors
         );
-        this.solid_modelview = glMatrix.mat4.create();
-        glMatrix.mat4.identity(this.solid_modelview);
+        this.solid_modelview = mat4.create();
+        mat4.identity(this.solid_modelview);
 
-        this.radius = radius;
+        this.fluid_renderer = new Sprite_renderer(
+            this.gl_context_bundle,
+            this.program_info,
+            fluid_state.positions,
+            fluid_state.colors
+        );
+        this.fluid_modelview = mat4.create();
+        mat4.identity(this.fluid_modelview);
     }
 
-    update_buffers({fluid_state}) {
-        this.fluid_renderer.update_buffers({positions: fluid_state.positions,
-            colors: fluid_state.colors});
-        // this.solid_renderer.update_buffers(simulation.solid_state);
+    update_buffers(fluid_state: Physical_state) {
+        this.fluid_renderer.update_buffers(
+            fluid_state.positions,
+            fluid_state.colors
+        );
     }
 
-    render({
-        do_array_colors = true,
-        point_size_gain = 1.0,
-        fluid_fixed_color = [0, 0, 1],
-        solid_fixed_color = [1, 0, 0],
-        width = 512,
-        height = 512,
-    } = {}) {
+    render(
+        do_array_colors: boolean,
+        point_size_gain: number,
+        solid_fixed_color: Array<number>,
+        fluid_fixed_color: Array<number>,
+        width: number,
+        height: number
+    ) {
         const gl = this.gl_context_bundle.gl;
         gl.clearColor(0, 0, 0, 1);
         gl.clear(gl.COLOR_BUFFER_BIT);
 
-        const projection = glMatrix.mat4.create();
-        const border = 50.0;
-        glMatrix.mat4.ortho(
+        const projection = mat4.create();
+        const border = 6 * this.radius;
+        mat4.ortho(
             projection,
             -border,
             width + border,
@@ -311,20 +404,20 @@ export class Simple_simulation_renderer {
             1.0
         );
 
-        this.solid_renderer.render({
-            do_array_colors: do_array_colors,
-            point_size: 2.0 * point_size_gain * this.radius,
-            projection: projection,
-            modelview: this.solid_modelview,
-            fixed_color: solid_fixed_color,
-        });
+        this.solid_renderer.render(
+            do_array_colors,
+            2.0 * this.radius * point_size_gain,
+            projection,
+            this.solid_modelview,
+            solid_fixed_color
+        );
 
-        this.fluid_renderer.render({
-            do_array_colors: do_array_colors,
-            point_size: 2.0 * point_size_gain * this.radius,
-            projection: projection,
-            modelview: this.solid_modelview,
-            fixed_color: fluid_fixed_color,
-        });
+        this.fluid_renderer.render(
+            do_array_colors,
+            2.0 * this.radius * point_size_gain,
+            projection,
+            this.fluid_modelview,
+            fluid_fixed_color
+        );
     }
 }
