@@ -34,9 +34,9 @@ function init() {
     }
 
     const params = default_parameters();
-    params.support = 15.0;
-    params.width = canvas.width;
-    params.height = canvas.height;
+    params.support = 0.025;
+    params.width = 1.0;
+    params.height = 1.0;
     simulation = new Simple_simulation(params);
 
     try {
@@ -87,8 +87,8 @@ function init() {
             Number(size_choice.value),
             [1, 0, 0],
             [0, 0, 1],
-            canvas.width,
-            canvas.height
+            params.width,
+            params.height
         );
 
         if (Boolean(animate_checkbox.checked)) {

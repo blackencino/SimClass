@@ -1,8 +1,10 @@
 import seedrandom = require("seedrandom");
 
-import { emit_solid_box, compute_grid_coords, morton,
-Parameters, Config } from "./common";
-import { MAX_NEIGHBORS, Neighborhood, Block,
+import { emit_solid_box, compute_grid_coords, morton, Parameters, Config } from "./common";
+import {
+    MAX_NEIGHBORS,
+    Neighborhood,
+    Block,
     compute_sorted_index_pairs,
     compute_block_map,
     compute_neighborhood_parts,
@@ -10,14 +12,19 @@ import { MAX_NEIGHBORS, Neighborhood, Block,
     compute_other_neighborhoods,
     compute_all_neighborhood_kernels,
     compute_all_neighborhoods,
-    visit_neighbor_pairs } from "./neighborhood";
+    visit_neighbor_pairs,
+} from "./neighborhood";
 
-import { State, Fluid_temp_data, Solid_temp_data, create_simulation_state_of_size,
-    random_box_initial_state } from "./state";
+import { State, Fluid_temp_data, Solid_temp_data, create_simulation_state_of_size } from "./state";
+import {
+    compute_constant_volumes,
+    fill_float_array,
+    cfl_maximum_time_step,
+    User_forces_function,
+} from "./sph_common";
+import { iisph_pseudo_ap_sub_step } from "./iisph_pseudo_ap";
 
 //import "es6-shim";
-
-
 
 //------------------------------------------------------------------------------
 function simple_simulation_step(
@@ -39,8 +46,7 @@ function simple_simulation_step(
         } else if (state.positions[i] + radius > width) {
             // Move point back onto rectangle and make sure it is moving
             // in negative direction
-            state.positions[i] =
-                width - (state.positions[i] + radius - width) - radius;
+            state.positions[i] = width - (state.positions[i] + radius - width) - radius;
             state.velocities[i] = -Math.abs(state.velocities[i]);
         }
     }
@@ -55,11 +61,39 @@ function simple_simulation_step(
         } else if (state.positions[i] + radius > height) {
             // Move point back onto rectangle and make sure it is moving
             // in negative direction
-            state.positions[i] =
-                height - (state.positions[i] + radius - height) - radius;
+            state.positions[i] = height - (state.positions[i] + radius - height) - radius;
             state.velocities[i] = -Math.abs(state.velocities[i]);
         }
     }
+}
+
+//------------------------------------------------------------------------------
+function random_box_initial_state(
+    count: number,
+    width: number,
+    height: number,
+    seed: string,
+    speed_gain: number
+): State {
+    const state = create_simulation_state_of_size(count);
+    const my_rng = seedrandom(seed);
+    // const my_rng = () => 0.5;
+    for (let i = 0; i < count; ++i) {
+        state.ids[i] = i;
+
+        // Random point in the width/height box
+        state.positions[2 * i] = width * my_rng();
+        state.positions[2 * i + 1] = height * my_rng();
+
+        const speed = speed_gain * (1.0 + 3.0 * my_rng());
+        const angle = 2.0 * Math.PI * my_rng();
+        state.velocities[2 * i] = speed * Math.cos(angle);
+        state.velocities[2 * i + 1] = speed * Math.sin(angle);
+    }
+    for (let i = 0; i < 3 * count; ++i) {
+        state.colors[i] = my_rng();
+    }
+    return state;
 }
 
 //------------------------------------------------------------------------------
@@ -77,12 +111,7 @@ function world_walls_initial_solid_state(
     const positions_array: Array<number> = [];
 
     // left wall
-    emit_solid_box(
-        positions_array,
-        [-border_size, -border_size],
-        [0.0, height + border_size],
-        R
-    );
+    emit_solid_box(positions_array, [-border_size, -border_size], [0.0, height + border_size], R);
 
     // right wall
     emit_solid_box(
@@ -108,10 +137,7 @@ function world_walls_initial_solid_state(
         R
     );
 
-    const tiny_block = (
-        unit: Array<number> | Float32Array,
-        roff: number
-    ): void => {
+    const tiny_block = (unit: Array<number> | Float32Array, roff: number): void => {
         const r = 0.04 + Math.abs(roff);
         emit_solid_box(
             positions_array,
@@ -131,10 +157,7 @@ function world_walls_initial_solid_state(
 
         for (let bx = 0; bx < N; ++bx) {
             const bxf = (bx + 1) / (N + 1);
-            tiny_block(
-                [bxf + my_rng_dist(), byf + my_rng_dist()],
-                my_rng_dist()
-            );
+            tiny_block([bxf + my_rng_dist(), byf + my_rng_dist()], my_rng_dist());
         }
     }
 
@@ -261,6 +284,105 @@ function color_from_neighbor_count(
 }
 
 //------------------------------------------------------------------------------
+// Every one of the regular SPH algorithms, excluding PCISPH, has the ability
+// to be called with an adaptive timestep. Getting this to work just right is
+// difficult, as many of the algorithms are sensitive to very small timesteps
+// I don't know why this is the case, and is worthy of investigation, but
+// meanwhile... this std adaptive timestep keeps the timesteps in some discrete
+// number of sub steps so that the dt is never too small.
+function std_adaptive_time_step(
+    sub_step: (
+        global_time: number,
+        dt: number,
+        config: Config,
+        fluid_state: State,
+        fluid_temp_data: Fluid_temp_data,
+        solid_state: State,
+        solid_temp_data: Solid_temp_data,
+        user_forces: User_forces_function
+    ) => void,
+    min_sub_step_denom: number,
+    max_sub_step_denom: number,
+    cfl_factor: number,
+    global_time: number,
+    config: Config,
+    fluid_state: State,
+    fluid_temp_data: Fluid_temp_data,
+    solid_state: State,
+    solid_temp_data: Solid_temp_data,
+    user_forces: User_forces_function
+): void {
+    if (min_sub_step_denom % max_sub_step_denom != 0) {
+        throw "INVALID SUB_STEP DENOMS. Min denom must be perfectly divisible by max denom";
+    }
+
+    const particle_count = fluid_state.positions.length / 2;
+    compute_constant_volumes(
+        particle_count,
+        config.params.target_density,
+        config.mass_per_particle,
+        fluid_temp_data.volumes
+    );
+
+    const min_sub_time_step = config.params.seconds_per_step / min_sub_step_denom;
+    const max_sub_time_step = config.params.seconds_per_step / max_sub_step_denom;
+    const sub_step_divisor = min_sub_step_denom / max_sub_step_denom;
+
+    let remaining_sub_steps = min_sub_step_denom;
+    let time = global_time;
+
+    const clamp = (a: number, lo: number, hi: number): number => {
+        return a < lo ? lo : a > hi ? hi : a;
+    };
+
+    while (remaining_sub_steps > 0) {
+        const cfl_step = cfl_maximum_time_step(
+            particle_count,
+            config.params.support,
+            cfl_factor,
+            fluid_state.velocities
+        );
+
+        let num_sub_steps = Math.ceil(cfl_step / min_sub_time_step);
+        num_sub_steps = clamp(num_sub_steps, 1, sub_step_divisor);
+        num_sub_steps = Math.min(num_sub_steps, remaining_sub_steps);
+
+        const sub_time_step = num_sub_steps * min_sub_time_step;
+
+        sub_step(
+            time,
+            sub_time_step,
+            config,
+            fluid_state,
+            fluid_temp_data,
+            solid_state,
+            solid_temp_data,
+            user_forces
+        );
+
+        remaining_sub_steps -= num_sub_steps;
+        time += sub_time_step;
+    }
+}
+
+function gravity_forces(
+    global_time: number,
+    dt: number,
+    config: Config,
+    fluid_state: State,
+    fluid_temp_data: Fluid_temp_data,
+    solid_state: State,
+    solid_temp_data: Solid_temp_data
+): void {
+    const count = fluid_state.positions.length / 2;
+    for (let i = 0; i < count; ++i) {
+        fluid_temp_data.external_forces[2 * i] = 0.0;
+        fluid_temp_data.external_forces[2 * i + 1] =
+            -config.mass_per_particle * config.params.gravity;
+    }
+}
+
+//------------------------------------------------------------------------------
 export class Simple_simulation {
     config: Config;
     solid_state: State;
@@ -269,9 +391,7 @@ export class Simple_simulation {
     fluid_temp_data: Fluid_temp_data;
     accumulated_time: number;
 
-    constructor(
-        params: Parameters
-    ) {
+    constructor(params: Parameters) {
         this.config = new Config(params);
         const HHalf = 0.5 * this.config.params.support;
 
@@ -284,64 +404,85 @@ export class Simple_simulation {
 
         const solid_count = this.solid_state.positions.length / 2;
         this.solid_temp_data = new Solid_temp_data(solid_count);
-        compute_neighborhood_parts(this.config,
-                                   this.solid_state,
-                                   this.solid_temp_data);
-        compute_self_neighborhoods(this.config,
-                                   this.solid_temp_data.self_neighborhood,
-                                   this.solid_state,
-                                   this.solid_temp_data);
-        compute_all_neighborhood_kernels(this.config,
-                                         this.solid_temp_data.self_neighborhood);
+        compute_neighborhood_parts(this.config, this.solid_state, this.solid_temp_data);
+        compute_self_neighborhoods(
+            this.config,
+            this.solid_temp_data.self_neighborhood,
+            this.solid_state,
+            this.solid_temp_data
+        );
+        compute_all_neighborhood_kernels(this.config, this.solid_temp_data.self_neighborhood);
 
-
-        // this.fluid_state = dam_break_initial_state(
-        //     {
-        //         support: support,
-        //         width: width,
-        //         height: height,
-        //     },
-        //     this.solid_state,
-        //     this.solid_temp_data
-        // );
-        this.fluid_state = random_box_initial_state(1000,
+        this.fluid_state = dam_break_initial_state(
+            this.config.params.support,
             this.config.params.width,
             this.config.params.height,
-            "random_box_initial_state",
-            30.0
+            this.solid_state,
+            this.solid_temp_data
         );
+        // this.fluid_state = random_box_initial_state(
+        //     1000,
+        //     this.config.params.width,
+        //     this.config.params.height,
+        //     "random_box_initial_state",
+        //     30.0
+        // );
 
         const fluid_count = this.fluid_state.positions.length / 2;
 
         // Make a fluid temp state
         this.fluid_temp_data = new Fluid_temp_data(fluid_count * 5);
-        compute_all_neighborhoods(this.config,
-                                  this.fluid_state,
-                                  this.fluid_temp_data,
-                                  this.solid_state,
-                                  this.solid_temp_data);
+        compute_all_neighborhoods(
+            this.config,
+            this.fluid_state,
+            this.fluid_temp_data,
+            this.solid_state,
+            this.solid_temp_data
+        );
         compute_all_neighborhood_kernels(this.config, this.fluid_temp_data.self_neighborhood);
         compute_all_neighborhood_kernels(this.config, this.fluid_temp_data.other_neighborhood);
+        color_from_neighbor_count(
+            fluid_count,
+            this.fluid_state.colors,
+            this.fluid_temp_data.self_neighborhood.counts
+        );
         this.accumulated_time = 0;
     }
 
     step(delta_time: number): void {
-        simple_simulation_step(
-            this.fluid_state,
-            delta_time,
-            this.config.draw_radius,
-            this.config.params.width,
-            this.config.params.height
-        );
-
         const count = this.fluid_state.positions.length / 2;
-        compute_all_neighborhoods(this.config,
-                                  this.fluid_state,
-                                  this.fluid_temp_data,
-                                  this.solid_state,
-                                  this.solid_temp_data);
-        compute_all_neighborhood_kernels(this.config, this.fluid_temp_data.self_neighborhood);
-        compute_all_neighborhood_kernels(this.config, this.fluid_temp_data.other_neighborhood);
+
+        // simple_simulation_step(
+        //     this.fluid_state,
+        //     delta_time,
+        //     this.config.draw_radius,
+        //     this.config.params.width,
+        //     this.config.params.height
+        // );
+
+        // compute_all_neighborhoods(
+        //     this.config,
+        //     this.fluid_state,
+        //     this.fluid_temp_data,
+        //     this.solid_state,
+        //     this.solid_temp_data
+        // );
+        // compute_all_neighborhood_kernels(this.config, this.fluid_temp_data.self_neighborhood);
+        // compute_all_neighborhood_kernels(this.config, this.fluid_temp_data.other_neighborhood);
+
+        std_adaptive_time_step(
+            iisph_pseudo_ap_sub_step,
+            60,
+            4,
+            0.2,
+            this.accumulated_time,
+            this.config,
+            this.fluid_state,
+            this.fluid_temp_data,
+            this.solid_state,
+            this.solid_temp_data,
+            gravity_forces
+        );
 
         color_from_neighbor_count(
             count,

@@ -1,6 +1,3 @@
-//import glMatrix = require("gl-matrix");
-//import from './gl-matrix.js'
-
 import {
     glMatrix,
     vec2,
