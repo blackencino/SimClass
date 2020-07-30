@@ -4,6 +4,7 @@ import {
     Simple_simulation_renderer,
 } from "./sprite_renderer";
 import { Simple_simulation } from "./simulation";
+import { default_parameters, Parameters, Config } from "./common";
 
 //------------------------------------------------------------------------------
 // Initialize the program.
@@ -32,14 +33,18 @@ function init() {
         return;
     }
 
-    simulation = new Simple_simulation(1000, 15.0, canvas.width, canvas.height);
+    const params = default_parameters();
+    params.support = 15.0;
+    params.width = canvas.width;
+    params.height = canvas.height;
+    simulation = new Simple_simulation(params);
 
     try {
         simulation_renderer = new Simple_simulation_renderer(
             gl_context_bundle,
             simulation.solid_state,
             simulation.fluid_state,
-            simulation.radius
+            simulation.config.draw_radius
         );
     } catch (e) {
         const canvas_holder = document.getElementById("canvas-holder");
