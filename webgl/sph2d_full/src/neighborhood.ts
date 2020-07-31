@@ -1,10 +1,4 @@
-import {
-    morton,
-    compute_grid_coords,
-    kernel_sph_w,
-    kernel_sph_gradw,
-    Config,
-} from "./common";
+import { morton, compute_grid_coords, kernel_sph_w, kernel_sph_gradw, Config } from "./common";
 
 export const MAX_NEIGHBORS: number = 32;
 
@@ -43,12 +37,7 @@ function create_index_pairs(
 }
 
 //------------------------------------------------------------------------------
-function index_pairs_less_than_elements(
-    a0: number,
-    a1: number,
-    b0: number,
-    b1: number
-): boolean {
+function index_pairs_less_than_elements(a0: number, a1: number, b0: number, b1: number): boolean {
     if (a0 < b0) {
         return true;
     } else if (a0 > b0) {
@@ -83,11 +72,7 @@ function index_pairs_greater_than_pivot(
     return index_pairs_less_than_elements(pivot0, pivot1, a0, a1);
 }
 
-function index_pairs_less_than(
-    index_pairs: Uint32Array,
-    a: number,
-    b: number
-): boolean {
+function index_pairs_less_than(index_pairs: Uint32Array, a: number, b: number): boolean {
     const a0 = index_pairs[a * 2];
     const a1 = index_pairs[a * 2 + 1];
     const b0 = index_pairs[b * 2];
@@ -95,11 +80,7 @@ function index_pairs_less_than(
     return index_pairs_less_than_elements(a0, a1, b0, b1);
 }
 
-function index_pairs_swap(
-    index_pairs: Uint32Array,
-    a: number,
-    b: number
-): void {
+function index_pairs_swap(index_pairs: Uint32Array, a: number, b: number): void {
     let tmp0 = index_pairs[a * 2];
     let tmp1 = index_pairs[a * 2 + 1];
     index_pairs[a * 2] = index_pairs[b * 2];
@@ -108,11 +89,7 @@ function index_pairs_swap(
     index_pairs[b * 2 + 1] = tmp1;
 }
 
-function index_pairs_partition(
-    index_pairs: Uint32Array,
-    lo: number,
-    hi: number
-): number {
+function index_pairs_partition(index_pairs: Uint32Array, lo: number, hi: number): number {
     let mid = Math.floor((lo + hi) / 2);
 
     if (index_pairs_less_than(index_pairs, mid, lo)) {
@@ -137,9 +114,7 @@ function index_pairs_partition(
 
         do {
             j = j - 1;
-        } while (
-            index_pairs_greater_than_pivot(index_pairs, j, pivot0, pivot1)
-        );
+        } while (index_pairs_greater_than_pivot(index_pairs, j, pivot0, pivot1));
 
         if (i >= j) {
             return j;
@@ -153,19 +128,14 @@ function index_pairs_partition(
 // to insertion sort.
 const SORT_INSERTION_THRESH: number = 4;
 
-function index_pairs_insertionsort(
-    index_pairs: Uint32Array,
-    lo: number,
-    hi: number
-): void {
+function index_pairs_insertionsort(index_pairs: Uint32Array, lo: number, hi: number): void {
     for (let i = lo + 1; i <= hi; ++i) {
         let pivot0 = index_pairs[i * 2];
         let pivot1 = index_pairs[i * 2 + 1];
         let j: number;
         for (
             j = i - 1;
-            j >= lo &&
-            index_pairs_greater_than_pivot(index_pairs, j, pivot0, pivot1);
+            j >= lo && index_pairs_greater_than_pivot(index_pairs, j, pivot0, pivot1);
             --j
         ) {
             index_pairs[(j + 1) * 2] = index_pairs[j * 2];
@@ -177,11 +147,7 @@ function index_pairs_insertionsort(
     }
 }
 
-function index_pairs_quicksort(
-    index_pairs: Uint32Array,
-    lo: number,
-    hi: number
-): void {
+function index_pairs_quicksort(index_pairs: Uint32Array, lo: number, hi: number): void {
     const count = hi - lo + 1;
     if (count < 2) {
         return;
@@ -301,16 +267,43 @@ export function compute_neighborhoods(
             for (let ii = grid_coord_i - 1; ii <= grid_coord_i + 1; ++ii) {
                 const other_z_index = morton(ii, j);
                 const found_block = other_block_map.get(other_z_index);
+                // if (ii < 0 || j < 0) {
+                //     console.log('negative morton index: ', other_z_index, grid_coord_i, grid_coord_j, ii, j);
+                //     if (found_block) {
+                //         console.log("FOUND A NEGATIVE BLOCK");
+                //     }
+                // }
+                // if (ii == -3 || j == -3) {
+                //     console.log("Testing -3, -3 for z_index: ", other_z_index);
+                //     other_block_map.forEach((block: Block, index: number) => {
+                //         for (let sip = block.begin; sip != block.end; ++sip) {
+                //             const test_zindex = other_sorted_index_pairs[sip * 2];
+                //             const test_i = other_sorted_index_pairs[sip * 2 + 1];
+                //             const px = other_positions[test_i * 2];
+                //             const py = other_positions[test_i * 2 + 1];
+                //             const gci = Math.floor(px / max_distance);
+                //             const gcj = Math.floor(py / max_distance);
+                //             if (gci < 1 && gcj < 1) {
+                //                 console.log(
+                //                     "Test block: ",
+                //                     test_zindex,
+                //                     test_i,
+                //                     px,
+                //                     py,
+                //                     gci,
+                //                     gcj,
+                //                     sip
+                //                 );
+                //             }
+                //         }
+                //     });
+                // }
                 if (found_block === undefined) {
                     continue;
                 }
 
                 // sip == sorted_index_pair
-                for (
-                    let sip = found_block.begin;
-                    sip != found_block.end;
-                    ++sip
-                ) {
+                for (let sip = found_block.begin; sip != found_block.end; ++sip) {
                     const other_i = other_sorted_index_pairs[sip * 2 + 1];
 
                     // Don't count our self if the positions array is the same.
@@ -319,21 +312,13 @@ export function compute_neighborhoods(
                     }
 
                     const vector_to_x = other_positions[other_i * 2] - pos_x;
-                    const vector_to_y =
-                        other_positions[other_i * 2 + 1] - pos_y;
+                    const vector_to_y = other_positions[other_i * 2 + 1] - pos_y;
                     const distance = Math.hypot(vector_to_x, vector_to_y);
                     if (distance >= max_distance) {
                         continue;
                     }
 
-                    neighbors.push(
-                        new Neighbor(
-                            other_i,
-                            distance,
-                            vector_to_x,
-                            vector_to_y
-                        )
-                    );
+                    neighbors.push(new Neighbor(other_i, distance, vector_to_x, vector_to_y));
                 }
             }
         }
@@ -347,12 +332,9 @@ export function compute_neighborhoods(
         for (let neighbor_i = 0; neighbor_i < nbhd_count; ++neighbor_i) {
             const neighbor = neighbors[neighbor_i];
             neighbor_indices[i * MAX_NEIGHBORS + neighbor_i] = neighbor.index;
-            neighbor_distances[i * MAX_NEIGHBORS + neighbor_i] =
-                neighbor.distance;
-            neighbor_vectors_to[(i * MAX_NEIGHBORS + neighbor_i) * 2] =
-                neighbor.vector_to_x;
-            neighbor_vectors_to[(i * MAX_NEIGHBORS + neighbor_i) * 2 + 1] =
-                neighbor.vector_to_y;
+            neighbor_distances[i * MAX_NEIGHBORS + neighbor_i] = neighbor.distance;
+            neighbor_vectors_to[(i * MAX_NEIGHBORS + neighbor_i) * 2] = neighbor.vector_to_x;
+            neighbor_vectors_to[(i * MAX_NEIGHBORS + neighbor_i) * 2 + 1] = neighbor.vector_to_y;
         }
     }
 }
@@ -365,11 +347,7 @@ export function compute_neighbor_kernels(
     neighbor_counts: Uint8Array,
     neighbor_distances: Float32Array
 ): void {
-    for (
-        let particle_index = 0;
-        particle_index < particle_count;
-        ++particle_index
-    ) {
+    for (let particle_index = 0; particle_index < particle_count; ++particle_index) {
         const neighbor_count = neighbor_counts[particle_index];
         for (let j = 0; j < neighbor_count; ++j) {
             neighbor_kernels[particle_index * MAX_NEIGHBORS + j] = kernel_sph_w(
@@ -387,26 +365,16 @@ export function compute_neighbor_kernel_gradients(
     neighbor_counts: Uint8Array,
     neighbor_vectors_to: Float32Array
 ) {
-    for (
-        let particle_index = 0;
-        particle_index < particle_count;
-        ++particle_index
-    ) {
+    for (let particle_index = 0; particle_index < particle_count; ++particle_index) {
         const neighbor_count = neighbor_counts[particle_index];
         for (let j = 0; j < neighbor_count; ++j) {
             const gradw = kernel_sph_gradw(
                 neighbor_vectors_to[(particle_index * MAX_NEIGHBORS + j) * 2],
-                neighbor_vectors_to[
-                    (particle_index * MAX_NEIGHBORS + j) * 2 + 1
-                ],
+                neighbor_vectors_to[(particle_index * MAX_NEIGHBORS + j) * 2 + 1],
                 support
             );
-            neighbor_kernel_gradients[
-                (particle_index * MAX_NEIGHBORS + j) * 2
-            ] = gradw[0];
-            neighbor_kernel_gradients[
-                (particle_index * MAX_NEIGHBORS + j) * 2 + 1
-            ] = gradw[1];
+            neighbor_kernel_gradients[(particle_index * MAX_NEIGHBORS + j) * 2] = gradw[0];
+            neighbor_kernel_gradients[(particle_index * MAX_NEIGHBORS + j) * 2 + 1] = gradw[1];
         }
     }
 }
@@ -460,11 +428,7 @@ export function visit_neighbor_pairs(
                     continue;
                 }
 
-                for (
-                    let block_sip_a = block_a.begin;
-                    block_sip_a < block_a.end;
-                    ++block_sip_a
-                ) {
+                for (let block_sip_a = block_a.begin; block_sip_a < block_a.end; ++block_sip_a) {
                     const index_a = sorted_index_pairs_a[block_sip_a * 2 + 1];
                     const pos_a_x = positions_a[index_a * 2];
                     const pos_a_y = positions_a[index_a * 2 + 1];
@@ -474,8 +438,7 @@ export function visit_neighbor_pairs(
                         block_sip_b < block_b.end;
                         ++block_sip_b
                     ) {
-                        const index_b =
-                            sorted_index_pairs_b[block_sip_b * 2 + 1];
+                        const index_b = sorted_index_pairs_b[block_sip_b * 2 + 1];
                         // Don't call visitor on self.
                         if (positions_a === positions_b && index_a == index_b) {
                             continue;
@@ -529,17 +492,8 @@ export function compute_neighborhood_parts(
 ): void {
     const count = state.positions.length / 2;
     const cell_size = config.params.support * 2.0;
-    compute_grid_coords(
-        count,
-        cell_size,
-        temp_data.grid_coords,
-        state.positions
-    );
-    compute_sorted_index_pairs(
-        count,
-        temp_data.sorted_index_pairs,
-        temp_data.grid_coords
-    );
+    compute_grid_coords(count, cell_size, temp_data.grid_coords, state.positions);
+    compute_sorted_index_pairs(count, temp_data.sorted_index_pairs, temp_data.grid_coords);
     compute_block_map(count, temp_data.block_map, temp_data.sorted_index_pairs);
 }
 
@@ -599,10 +553,7 @@ export function compute_other_neighborhoods(
     );
 }
 
-export function compute_all_neighborhood_kernels(
-    config: Config,
-    neighborhood: Neighborhood
-): void {
+export function compute_all_neighborhood_kernels(config: Config, neighborhood: Neighborhood): void {
     const count = neighborhood.counts.length;
     compute_neighbor_kernels(
         count,

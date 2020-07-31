@@ -15,9 +15,7 @@ function init() {
     var simulation: Simple_simulation;
     var simulation_renderer: Simple_simulation_renderer;
     try {
-        var canvas_or_null = document.getElementById(
-            "webglcanvas"
-        ) as HTMLCanvasElement;
+        var canvas_or_null = document.getElementById("webglcanvas") as HTMLCanvasElement;
         if (!canvas_or_null) {
             throw "Cannot get webglcanvas element";
         }
@@ -27,8 +25,7 @@ function init() {
     } catch (e) {
         const canvas_holder = document.getElementById("canvas-holder");
         if (canvas_holder) {
-            canvas_holder.innerHTML =
-                "<p>Sorry, could not get a WebGL graphics context.</p>";
+            canvas_holder.innerHTML = "<p>Sorry, could not get a WebGL graphics context.</p>";
         }
         return;
     }
@@ -50,22 +47,14 @@ function init() {
         const canvas_holder = document.getElementById("canvas-holder");
         if (canvas_holder) {
             canvas_holder.innerHTML =
-                "<p>Sorry, could not initialize the WebGL graphics context:" +
-                e +
-                "</p>";
+                "<p>Sorry, could not initialize the WebGL graphics context:" + e + "</p>";
         }
         return;
     }
 
-    var animate_checkbox = document.getElementById(
-        "animateCheckbox"
-    ) as HTMLInputElement;
-    var color_checkbox = document.getElementById(
-        "colorCheckbox"
-    ) as HTMLInputElement;
-    var size_choice = document.getElementById(
-        "sizeChoice"
-    ) as HTMLSelectElement;
+    var animate_checkbox = document.getElementById("animateCheckbox") as HTMLInputElement;
+    var color_checkbox = document.getElementById("colorCheckbox") as HTMLInputElement;
+    var size_choice = document.getElementById("sizeChoice") as HTMLSelectElement;
     var animating = true;
 
     animate_checkbox.checked = true;
@@ -78,8 +67,8 @@ function init() {
             const delta_time = new_time - prev_time;
             prev_time = new_time;
             const delta_time_seconds = Math.min(3.0, 0.001 * delta_time);
-            simulation.step(delta_time_seconds);
-            simulation_renderer.update_buffers(simulation.fluid_state);
+            //simulation.step(delta_time_seconds);
+            //simulation_renderer.update_buffers(simulation.fluid_state);
         }
 
         simulation_renderer.render(
@@ -113,9 +102,42 @@ function init() {
         }
     };
 
+    var step_button = document.getElementById("stepButton");
+    if (step_button) {
+        step_button.onclick = () => {
+            simulation.step(0.0);
+            simulation_renderer.update_buffers(simulation.fluid_state);
+
+            simulation_renderer.render(
+                Boolean(color_checkbox.checked),
+                Number(size_choice.value),
+                [1, 0, 0],
+                [0, 0, 1],
+                params.width,
+                params.height
+            );
+        };
+    }
+
+    var reset_button = document.getElementById("resetButton");
+    if (reset_button) {
+        reset_button.onclick = () => {
+            simulation.reset();
+            simulation_renderer.update_buffers(simulation.fluid_state);
+
+            simulation_renderer.render(
+                Boolean(color_checkbox.checked),
+                Number(size_choice.value),
+                [1, 0, 0],
+                [0, 0, 1],
+                params.width,
+                params.height
+            );
+        };
+    }
+
     prev_time = performance.now();
     do_frame(prev_time);
 }
 
 init();
-

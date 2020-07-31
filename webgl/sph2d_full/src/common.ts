@@ -62,12 +62,24 @@ for (let i = 4; i < 0xffff; i <<= 2) {
 }
 
 // Only works for 24 bit input numbers (up to 16777215).
+
+// clamping this to 32 bits.
+// export function morton(x: number, y: number): number {
+//     return (
+//         (Y[y & 0xff] | X[x & 0xff]) +
+//         (Y[(y >> 8) & 0xff] | X[(x >> 8) & 0xff]) * 0x10000 +
+//         (Y[(y >> 16) & 0xff] | X[(x >> 16) & 0xff]) * 0x100000000
+//     );
+// }
+const _clamped_index = new Uint32Array(2);
 export function morton(x: number, y: number): number {
-    return (
+    _clamped_index[0] = (
         (Y[y & 0xff] | X[x & 0xff]) +
-        (Y[(y >> 8) & 0xff] | X[(x >> 8) & 0xff]) * 0x10000 +
-        (Y[(y >> 16) & 0xff] | X[(x >> 16) & 0xff]) * 0x100000000
+        (Y[(y >> 8) & 0xff] | X[(x >> 8) & 0xff]) * 0x10000 //+
+        //(Y[(y >> 16) & 0xff] | X[(x >> 16) & 0xff]) * 0x100000000
     );
+    _clamped_index[1] = 0;
+    return _clamped_index[0];
 }
 
 export function sqr(x: number): number {
@@ -233,13 +245,15 @@ export class Config {
         let best_index = 0;
         for (let i = 1; i < emitted_count; ++i) {
             let point = [positions[i*2], positions[i*2+1]];
-            const r2 = Math.hypot();
+            const r2 = Math.hypot(point[0], point[1]);
             if (r2 < best_r2) {
                 best_point = point;
                 best_r2 = r2;
                 best_index = i;
             }
         }
+        console.log("Best index: ", best_index);
+        console.log("Best r2: ", best_r2);
 
         let num_neighbors = 0;
         for (let i = 0; i < emitted_count; ++i) {
@@ -262,5 +276,11 @@ export class Config {
 
         this.target_concentration = muchness0;
         this.mass_per_particle = this.params.target_density / muchness0;
+        console.log("radius: ", this.draw_radius);
+        console.log("mass: ", this.mass_per_particle);
+        console.log("support: ", this.params.support);
+        console.log("target concentration: ", this.target_concentration);
+        console.log("num_neighbors: ", num_neighbors);
+        console.log("best_point: ", best_point[0], best_point[1]);
     }
 };

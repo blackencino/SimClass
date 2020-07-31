@@ -17,6 +17,7 @@ import {
 
 import { State, Fluid_temp_data, Solid_temp_data, create_simulation_state_of_size } from "./state";
 import {
+    compute_volumes,
     compute_constant_volumes,
     fill_float_array,
     cfl_maximum_time_step,
@@ -276,10 +277,43 @@ function color_from_neighbor_count(
     neighbor_counts: Uint8Array
 ): void {
     for (let i = 0; i < count; ++i) {
-        const d = 2.5 * (neighbor_counts[i] / MAX_NEIGHBORS);
-        colors[3 * i] = d;
-        colors[3 * i + 1] = d;
-        colors[3 * i + 2] = 1.0;
+
+        const j = neighbor_counts[i];
+        if (j == 0) {
+            colors[i*3] = 1;
+            colors[i*3+1]=0;
+            colors[i*3+2]=0;
+        } else if (j==1) {
+            colors[i*3] = 0;
+            colors[i*3+1]=1;
+            colors[i*3+2]=0;
+        } else if (j==2) {
+            colors[i*3] = 0;
+            colors[i*3+1]=0;
+            colors[i*3+2]=1;
+        } else if (j==3) {
+            colors[i*3] = 1;
+            colors[i*3+1]=1;
+            colors[i*3+2]=0;
+        } else if (j==4) {
+            colors[i*3] = 1;
+            colors[i*3+1]=0;
+            colors[i*3+2]=1;
+        } else if (j==5) {
+            colors[i*3] = 0;
+            colors[i*3+1]=1;
+            colors[i*3+2]=1;
+        } else {
+            colors[i*3] = 1;
+            colors[i*3+1]=1;
+            colors[i*3+2]=1;
+        }
+
+
+        // const d = 5 * (neighbor_counts[i] / MAX_NEIGHBORS);
+        // colors[3 * i] = d;
+        // colors[3 * i + 1] = d;
+        // colors[3 * i + 2] = 1.0;
     }
 }
 
@@ -335,19 +369,21 @@ function std_adaptive_time_step(
         return a < lo ? lo : a > hi ? hi : a;
     };
 
-    while (remaining_sub_steps > 0) {
-        const cfl_step = cfl_maximum_time_step(
-            particle_count,
-            config.params.support,
-            cfl_factor,
-            fluid_state.velocities
-        );
+    // while (remaining_sub_steps > 0) {
+    //     const cfl_step = cfl_maximum_time_step(
+    //         particle_count,
+    //         config.params.support,
+    //         cfl_factor,
+    //         fluid_state.velocities
+    //     );
 
-        let num_sub_steps = Math.ceil(cfl_step / min_sub_time_step);
-        num_sub_steps = clamp(num_sub_steps, 1, sub_step_divisor);
-        num_sub_steps = Math.min(num_sub_steps, remaining_sub_steps);
+    //     let num_sub_steps = Math.ceil(cfl_step / min_sub_time_step);
+    //     num_sub_steps = clamp(num_sub_steps, 1, sub_step_divisor);
+    //     num_sub_steps = Math.min(num_sub_steps, remaining_sub_steps);
 
-        const sub_time_step = num_sub_steps * min_sub_time_step;
+    //     const sub_time_step = num_sub_steps * min_sub_time_step;
+
+    const sub_time_step = (1.0 / 30.0 / 30.0);
 
         sub_step(
             time,
@@ -360,9 +396,9 @@ function std_adaptive_time_step(
             user_forces
         );
 
-        remaining_sub_steps -= num_sub_steps;
-        time += sub_time_step;
-    }
+        //remaining_sub_steps -= num_sub_steps;
+        //time += sub_time_step;
+    //}
 }
 
 function gravity_forces(
@@ -412,6 +448,14 @@ export class Simple_simulation {
             this.solid_temp_data
         );
         compute_all_neighborhood_kernels(this.config, this.solid_temp_data.self_neighborhood);
+        compute_volumes(solid_count, this.config.params.support, this.solid_temp_data.volumes,
+                        this.solid_temp_data.self_neighborhood.counts,
+                        this.solid_temp_data.self_neighborhood.kernels);
+        color_from_neighbor_count(
+            solid_count,
+            this.solid_state.colors,
+            this.solid_temp_data.self_neighborhood.counts
+        );
 
         this.fluid_state = dam_break_initial_state(
             this.config.params.support,
@@ -431,7 +475,7 @@ export class Simple_simulation {
         const fluid_count = this.fluid_state.positions.length / 2;
 
         // Make a fluid temp state
-        this.fluid_temp_data = new Fluid_temp_data(fluid_count * 5);
+        this.fluid_temp_data = new Fluid_temp_data(fluid_count);
         compute_all_neighborhoods(
             this.config,
             this.fluid_state,
@@ -444,7 +488,44 @@ export class Simple_simulation {
         color_from_neighbor_count(
             fluid_count,
             this.fluid_state.colors,
-            this.fluid_temp_data.self_neighborhood.counts
+            this.fluid_temp_data.other_neighborhood.counts
+        );
+        this.accumulated_time = 0;
+    }
+
+    reset(): void {
+        this.fluid_state = dam_break_initial_state(
+            this.config.params.support,
+            this.config.params.width,
+            this.config.params.height,
+            this.solid_state,
+            this.solid_temp_data
+        );
+        // this.fluid_state = random_box_initial_state(
+        //     1000,
+        //     this.config.params.width,
+        //     this.config.params.height,
+        //     "random_box_initial_state",
+        //     30.0
+        // );
+
+        const fluid_count = this.fluid_state.positions.length / 2;
+
+        // Make a fluid temp state
+        this.fluid_temp_data = new Fluid_temp_data(fluid_count);
+        compute_all_neighborhoods(
+            this.config,
+            this.fluid_state,
+            this.fluid_temp_data,
+            this.solid_state,
+            this.solid_temp_data
+        );
+        compute_all_neighborhood_kernels(this.config, this.fluid_temp_data.self_neighborhood);
+        compute_all_neighborhood_kernels(this.config, this.fluid_temp_data.other_neighborhood);
+        color_from_neighbor_count(
+            fluid_count,
+            this.fluid_state.colors,
+            this.fluid_temp_data.other_neighborhood.counts
         );
         this.accumulated_time = 0;
     }
