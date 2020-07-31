@@ -52,53 +52,42 @@ function iisph_pseudo_ap_density_stars_and_pseudo_diagonals(
         let divergence = 0.0;
 
         // Loop over fluids
-        if (fluid_nbhd_count > 0) {
-            for (let j = 0; j < fluid_nbhd_count; ++j) {
-                const neighbor_particle_index =
-                    fluid_neighborhood.indices[particle_index * MAX_NEIGHBORS + j];
-                const grad_w_x =
-                    fluid_neighborhood.kernel_gradients[(particle_index * MAX_NEIGHBORS + j) * 2];
-                const grad_w_y =
-                    fluid_neighborhood.kernel_gradients[
-                        (particle_index * MAX_NEIGHBORS + j) * 2 + 1
-                    ];
-                const neighbor_mass = fluid_volumes[neighbor_particle_index] * target_density;
+        for (let j = 0; j < fluid_nbhd_count; ++j) {
+            const neighbor_particle_index =
+                fluid_neighborhood.indices[particle_index * MAX_NEIGHBORS + j];
+            const grad_w_x =
+                fluid_neighborhood.kernel_gradients[(particle_index * MAX_NEIGHBORS + j) * 2];
+            const grad_w_y =
+                fluid_neighborhood.kernel_gradients[(particle_index * MAX_NEIGHBORS + j) * 2 + 1];
+            const neighbor_mass = fluid_volumes[neighbor_particle_index] * target_density;
 
-                sum_m_gradw_x += neighbor_mass * grad_w_x;
-                sum_m_gradw_y += neighbor_mass * grad_w_y;
-                sum_m_gradw_dot_gradw +=
-                    neighbor_mass * (grad_w_x * grad_w_x + grad_w_y * grad_w_y);
+            sum_m_gradw_x += neighbor_mass * grad_w_x;
+            sum_m_gradw_y += neighbor_mass * grad_w_y;
+            sum_m_gradw_dot_gradw += neighbor_mass * (grad_w_x * grad_w_x + grad_w_y * grad_w_y);
 
-                const delta_vel_x = self_velocity_x - fluid_velocities[neighbor_particle_index * 2];
-                const delta_vel_y =
-                    self_velocity_y - fluid_velocities[neighbor_particle_index * 2 + 1];
-                divergence += neighbor_mass * (delta_vel_x * grad_w_x + delta_vel_y * grad_w_y);
-            }
+            const delta_vel_x = self_velocity_x - fluid_velocities[neighbor_particle_index * 2];
+            const delta_vel_y = self_velocity_y - fluid_velocities[neighbor_particle_index * 2 + 1];
+            divergence += neighbor_mass * (delta_vel_x * grad_w_x + delta_vel_y * grad_w_y);
         }
 
         // Loop over solids
         // Note that the sum of dot products is omitted, this is due to the fact that the
         // solids are not moved in this simulation phase by the fluids.
-        if (solid_nbhd_count > 0) {
-            for (let j = 0; j < solid_nbhd_count; ++j) {
-                const neighbor_particle_index =
-                    solid_neighborhood.indices[particle_index * MAX_NEIGHBORS + j];
-                const grad_w_x =
-                    solid_neighborhood.kernel_gradients[(particle_index * MAX_NEIGHBORS + j) * 2];
-                const grad_w_y =
-                    solid_neighborhood.kernel_gradients[
-                        (particle_index * MAX_NEIGHBORS + j) * 2 + 1
-                    ];
-                const neighbor_mass = solid_volumes[neighbor_particle_index] * target_density;
+        for (let j = 0; j < solid_nbhd_count; ++j) {
+            const neighbor_particle_index =
+                solid_neighborhood.indices[particle_index * MAX_NEIGHBORS + j];
+            const grad_w_x =
+                solid_neighborhood.kernel_gradients[(particle_index * MAX_NEIGHBORS + j) * 2];
+            const grad_w_y =
+                solid_neighborhood.kernel_gradients[(particle_index * MAX_NEIGHBORS + j) * 2 + 1];
+            const neighbor_mass = solid_volumes[neighbor_particle_index] * target_density;
 
-                sum_m_gradw_x += neighbor_mass * grad_w_x;
-                sum_m_gradw_y += neighbor_mass * grad_w_y;
+            sum_m_gradw_x += neighbor_mass * grad_w_x;
+            sum_m_gradw_y += neighbor_mass * grad_w_y;
 
-                const delta_vel_x = self_velocity_x - solid_velocities[neighbor_particle_index * 2];
-                const delta_vel_y =
-                    self_velocity_y - solid_velocities[neighbor_particle_index * 2 + 1];
-                divergence += neighbor_mass * (delta_vel_x * grad_w_x + delta_vel_y * grad_w_y);
-            }
+            const delta_vel_x = self_velocity_x - solid_velocities[neighbor_particle_index * 2];
+            const delta_vel_y = self_velocity_y - solid_velocities[neighbor_particle_index * 2 + 1];
+            divergence += neighbor_mass * (delta_vel_x * grad_w_x + delta_vel_y * grad_w_y);
         }
 
         const self_density_sqr = self_density * self_density;
@@ -289,48 +278,41 @@ function iisph_pseudo_ap_iterate_pseudo_pressures_in_place(
         const self_pseudo_pressure_displacement_y =
             pseudo_pressure_displacements[particle_index * 2 + 1];
 
-        if (fluid_nbhd_count > 0) {
-            for (let j = 0; j < fluid_nbhd_count; ++j) {
-                const neighbor_particle_index =
-                    fluid_neighborhood.indices[particle_index * MAX_NEIGHBORS + j];
-                const neighbor_mass = target_density * fluid_volumes[neighbor_particle_index];
-                const grad_w_x =
-                    fluid_neighborhood.kernel_gradients[(particle_index * MAX_NEIGHBORS + j) * 2];
-                const grad_w_y =
-                    fluid_neighborhood.kernel_gradients[
-                        (particle_index * MAX_NEIGHBORS + j) * 2 + 1
-                    ];
-                const neighbor_pseudo_pressure_displacement_x =
-                    pseudo_pressure_displacements[neighbor_particle_index * 2];
-                const neighbor_pseudo_pressure_displacement_y =
-                    pseudo_pressure_displacements[neighbor_particle_index * 2 + 1];
+        for (let j = 0; j < fluid_nbhd_count; ++j) {
+            const neighbor_particle_index =
+                fluid_neighborhood.indices[particle_index * MAX_NEIGHBORS + j];
+            const neighbor_mass = target_density * fluid_volumes[neighbor_particle_index];
+            const grad_w_x =
+                fluid_neighborhood.kernel_gradients[(particle_index * MAX_NEIGHBORS + j) * 2];
+            const grad_w_y =
+                fluid_neighborhood.kernel_gradients[(particle_index * MAX_NEIGHBORS + j) * 2 + 1];
 
-                const dp_x =
-                    self_pseudo_pressure_displacement_x - neighbor_pseudo_pressure_displacement_x;
-                const dp_y =
-                    self_pseudo_pressure_displacement_y - neighbor_pseudo_pressure_displacement_y;
+            const neighbor_pseudo_pressure_displacement_x =
+                pseudo_pressure_displacements[neighbor_particle_index * 2];
+            const neighbor_pseudo_pressure_displacement_y =
+                pseudo_pressure_displacements[neighbor_particle_index * 2 + 1];
 
-                Api += neighbor_mass * (dp_x * grad_w_x + dp_y * grad_w_y);
-            }
+            const dp_x =
+                self_pseudo_pressure_displacement_x - neighbor_pseudo_pressure_displacement_x;
+            const dp_y =
+                self_pseudo_pressure_displacement_y - neighbor_pseudo_pressure_displacement_y;
+
+            Api += neighbor_mass * (dp_x * grad_w_x + dp_y * grad_w_y);
         }
 
-        if (solid_nbhd_count > 0) {
-            for (let j = 0; j < solid_nbhd_count; ++j) {
-                const neighbor_particle_index =
-                    solid_neighborhood.indices[particle_index * MAX_NEIGHBORS + j];
-                const neighbor_mass = target_density * solid_volumes[neighbor_particle_index];
-                const grad_w_x =
-                    solid_neighborhood.kernel_gradients[(particle_index * MAX_NEIGHBORS + j) * 2];
-                const grad_w_y =
-                    solid_neighborhood.kernel_gradients[
-                        (particle_index * MAX_NEIGHBORS + j) * 2 + 1
-                    ];
+        for (let j = 0; j < solid_nbhd_count; ++j) {
+            const neighbor_particle_index =
+                solid_neighborhood.indices[particle_index * MAX_NEIGHBORS + j];
+            const neighbor_mass = target_density * solid_volumes[neighbor_particle_index];
+            const grad_w_x =
+                solid_neighborhood.kernel_gradients[(particle_index * MAX_NEIGHBORS + j) * 2];
+            const grad_w_y =
+                solid_neighborhood.kernel_gradients[(particle_index * MAX_NEIGHBORS + j) * 2 + 1];
 
-                Api +=
-                    neighbor_mass *
-                    (self_pseudo_pressure_displacement_x * grad_w_x +
-                        self_pseudo_pressure_displacement_y * grad_w_y);
-            }
+            Api +=
+                neighbor_mass *
+                (self_pseudo_pressure_displacement_x * grad_w_x +
+                    self_pseudo_pressure_displacement_y * grad_w_y);
         }
 
         const source = target_density - density_stars[particle_index];

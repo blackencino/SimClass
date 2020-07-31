@@ -22,6 +22,7 @@ import {
     fill_float_array,
     cfl_maximum_time_step,
     User_forces_function,
+    compute_densities,
 } from "./sph_common";
 import { iisph_pseudo_ap_sub_step } from "./iisph_pseudo_ap";
 
@@ -271,44 +272,58 @@ function dam_break_initial_state(
 }
 
 //------------------------------------------------------------------------------
+function color_from_density(
+    count: number,
+    target_density: number,
+    colors: Float32Array,
+    densities: Float32Array
+): void {
+    for (let i = 0; i < count; ++i) {
+        const norm_d = densities[i] / (1.1 * target_density);
+        let c = 1.0 - norm_d;
+        c = c < 0.0 ? 0.0 : c > 1.0 ? 1.0 : c;
+        colors[i * 3] = c;
+        colors[i * 3 + 1] = c;
+        colors[i * 3 + 2] = 1;
+    }
+}
+
 function color_from_neighbor_count(
     count: number,
     colors: Float32Array,
     neighbor_counts: Uint8Array
 ): void {
     for (let i = 0; i < count; ++i) {
-
         const j = neighbor_counts[i];
         if (j == 0) {
-            colors[i*3] = 1;
-            colors[i*3+1]=0;
-            colors[i*3+2]=0;
-        } else if (j==1) {
-            colors[i*3] = 0;
-            colors[i*3+1]=1;
-            colors[i*3+2]=0;
-        } else if (j==2) {
-            colors[i*3] = 0;
-            colors[i*3+1]=0;
-            colors[i*3+2]=1;
-        } else if (j==3) {
-            colors[i*3] = 1;
-            colors[i*3+1]=1;
-            colors[i*3+2]=0;
-        } else if (j==4) {
-            colors[i*3] = 1;
-            colors[i*3+1]=0;
-            colors[i*3+2]=1;
-        } else if (j==5) {
-            colors[i*3] = 0;
-            colors[i*3+1]=1;
-            colors[i*3+2]=1;
+            colors[i * 3] = 1;
+            colors[i * 3 + 1] = 0;
+            colors[i * 3 + 2] = 0;
+        } else if (j == 1) {
+            colors[i * 3] = 0;
+            colors[i * 3 + 1] = 1;
+            colors[i * 3 + 2] = 0;
+        } else if (j == 2) {
+            colors[i * 3] = 0;
+            colors[i * 3 + 1] = 0;
+            colors[i * 3 + 2] = 1;
+        } else if (j == 3) {
+            colors[i * 3] = 1;
+            colors[i * 3 + 1] = 1;
+            colors[i * 3 + 2] = 0;
+        } else if (j == 4) {
+            colors[i * 3] = 1;
+            colors[i * 3 + 1] = 0;
+            colors[i * 3 + 2] = 1;
+        } else if (j == 5) {
+            colors[i * 3] = 0;
+            colors[i * 3 + 1] = 1;
+            colors[i * 3 + 2] = 1;
         } else {
-            colors[i*3] = 1;
-            colors[i*3+1]=1;
-            colors[i*3+2]=1;
+            colors[i * 3] = 1;
+            colors[i * 3 + 1] = 1;
+            colors[i * 3 + 2] = 1;
         }
-
 
         // const d = 5 * (neighbor_counts[i] / MAX_NEIGHBORS);
         // colors[3 * i] = d;
@@ -383,21 +398,21 @@ function std_adaptive_time_step(
 
     //     const sub_time_step = num_sub_steps * min_sub_time_step;
 
-    const sub_time_step = (1.0 / 30.0 / 30.0);
+    const sub_time_step = 1.0 / 30.0 / 10.0;
 
-        sub_step(
-            time,
-            sub_time_step,
-            config,
-            fluid_state,
-            fluid_temp_data,
-            solid_state,
-            solid_temp_data,
-            user_forces
-        );
+    sub_step(
+        time,
+        sub_time_step,
+        config,
+        fluid_state,
+        fluid_temp_data,
+        solid_state,
+        solid_temp_data,
+        user_forces
+    );
 
-        //remaining_sub_steps -= num_sub_steps;
-        //time += sub_time_step;
+    //remaining_sub_steps -= num_sub_steps;
+    //time += sub_time_step;
     //}
 }
 
@@ -448,9 +463,13 @@ export class Simple_simulation {
             this.solid_temp_data
         );
         compute_all_neighborhood_kernels(this.config, this.solid_temp_data.self_neighborhood);
-        compute_volumes(solid_count, this.config.params.support, this.solid_temp_data.volumes,
-                        this.solid_temp_data.self_neighborhood.counts,
-                        this.solid_temp_data.self_neighborhood.kernels);
+        compute_volumes(
+            solid_count,
+            this.config.params.support,
+            this.solid_temp_data.volumes,
+            this.solid_temp_data.self_neighborhood.counts,
+            this.solid_temp_data.self_neighborhood.kernels
+        );
         color_from_neighbor_count(
             solid_count,
             this.solid_state.colors,
@@ -485,11 +504,31 @@ export class Simple_simulation {
         );
         compute_all_neighborhood_kernels(this.config, this.fluid_temp_data.self_neighborhood);
         compute_all_neighborhood_kernels(this.config, this.fluid_temp_data.other_neighborhood);
-        color_from_neighbor_count(
+
+        compute_densities(
             fluid_count,
-            this.fluid_state.colors,
-            this.fluid_temp_data.other_neighborhood.counts
+            this.config.params.support,
+            this.config.params.target_density,
+            this.fluid_temp_data.densities,
+            this.fluid_temp_data.volumes,
+            this.fluid_temp_data.self_neighborhood,
+            this.solid_temp_data.volumes,
+            this.fluid_temp_data.other_neighborhood
         );
+
+        color_from_density(
+            fluid_count,
+            this.config.params.target_density,
+            this.fluid_state.colors,
+            this.fluid_temp_data.densities
+        );
+
+        // color_from_neighbor_count(
+        //     fluid_count,
+        //     this.fluid_state.colors,
+        //     this.fluid_temp_data.other_neighborhood.counts
+        // );
+
         this.accumulated_time = 0;
     }
 
@@ -522,10 +561,22 @@ export class Simple_simulation {
         );
         compute_all_neighborhood_kernels(this.config, this.fluid_temp_data.self_neighborhood);
         compute_all_neighborhood_kernels(this.config, this.fluid_temp_data.other_neighborhood);
-        color_from_neighbor_count(
+        compute_densities(
             fluid_count,
+            this.config.params.support,
+            this.config.params.target_density,
+            this.fluid_temp_data.densities,
+            this.fluid_temp_data.volumes,
+            this.fluid_temp_data.self_neighborhood,
+            this.solid_temp_data.volumes,
+            this.fluid_temp_data.other_neighborhood
+        );
+
+        color_from_density(
+            fluid_count,
+            this.config.params.target_density,
             this.fluid_state.colors,
-            this.fluid_temp_data.other_neighborhood.counts
+            this.fluid_temp_data.densities
         );
         this.accumulated_time = 0;
     }
@@ -565,10 +616,17 @@ export class Simple_simulation {
             gravity_forces
         );
 
-        color_from_neighbor_count(
+        // color_from_neighbor_count(
+        //     count,
+        //     this.fluid_state.colors,
+        //     this.fluid_temp_data.other_neighborhood.counts
+        // );
+
+        color_from_density(
             count,
+            this.config.params.target_density,
             this.fluid_state.colors,
-            this.fluid_temp_data.self_neighborhood.counts
+            this.fluid_temp_data.densities
         );
     }
 }

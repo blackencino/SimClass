@@ -8,7 +8,8 @@ export function is_safe_divide(numer: number, denom: number): boolean {
     } else if (Math.abs(denom) >= 1) {
         return true;
     } else {
-        const mr = Math.abs(denom) / Number.MIN_VALUE;
+        const DENOM_EPSILON = 1.0e-20; // Number.MIN_VALUE
+        const mr = Math.abs(denom) / DENOM_EPSILON;
         if (mr > Math.abs(numer)) {
             return true;
         } else {
@@ -27,7 +28,8 @@ export function safe_divide_or(
     } else if (Math.abs(denom) >= 1) {
         return numer / denom;
     } else {
-        const mr = Math.abs(denom) / Number.MIN_VALUE;
+        const DENOM_EPSILON = 1.0e-20; // Number.MIN_VALUE
+        const mr = Math.abs(denom) / DENOM_EPSILON;
         if (mr > Math.abs(numer)) {
             return numer / denom;
         } else {
