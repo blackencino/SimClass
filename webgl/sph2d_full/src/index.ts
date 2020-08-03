@@ -111,10 +111,10 @@ function init() {
                 simulation.fluid_state.positions,
                 simulation.fluid_state.colors
             );
-            simulation_renderer.solid_renderer.update_buffers(
-                simulation.solid_state.positions,
-                simulation.solid_state.colors
-            );
+            // simulation_renderer.solid_renderer.update_buffers(
+            //     simulation.solid_state.positions,
+            //     simulation.solid_state.colors
+            // );
 
             simulation_renderer.render(
                 Boolean(color_checkbox.checked),
