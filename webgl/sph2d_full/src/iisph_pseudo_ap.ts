@@ -1,4 +1,4 @@
-import { is_safe_divide, safe_divide_or, Config } from "./common";
+import { is_safe_divide, safe_divide_or, Config, sqr } from "./common";
 import { State, Fluid_temp_data, Solid_temp_data } from "./state";
 import {
     MAX_NEIGHBORS,
@@ -37,7 +37,7 @@ function iisph_pseudo_ap_density_stars_and_pseudo_diagonals(
         if (fluid_nbhd_count + solid_nbhd_count < 1) {
             density_stars[particle_index] = densities[particle_index];
             pseudo_diagonals[particle_index] = 0.0;
-            return;
+            continue;
         }
 
         const self_mass = fluid_volumes[particle_index] * target_density;
@@ -90,26 +90,11 @@ function iisph_pseudo_ap_density_stars_and_pseudo_diagonals(
             divergence += neighbor_mass * (delta_vel_x * grad_w_x + delta_vel_y * grad_w_y);
         }
 
-        const self_density_sqr = self_density * self_density;
+        const numer = -((sum_m_gradw_x * sum_m_gradw_x + sum_m_gradw_y * sum_m_gradw_y) +
+                        self_mass * sum_m_gradw_dot_gradw);
+        const denom = self_density * self_density;
 
-        sum_m_gradw_dot_gradw *= self_mass;
-        if (
-            is_safe_divide(sum_m_gradw_x, self_density) &&
-            is_safe_divide(sum_m_gradw_y, self_density) &&
-            is_safe_divide(sum_m_gradw_dot_gradw, self_density_sqr)
-        ) {
-            sum_m_gradw_x /= self_density;
-            sum_m_gradw_y /= self_density;
-            sum_m_gradw_dot_gradw /= self_density_sqr;
-            const aii =
-                sum_m_gradw_x * sum_m_gradw_x +
-                sum_m_gradw_y * sum_m_gradw_y +
-                sum_m_gradw_dot_gradw;
-            pseudo_diagonals[particle_index] = -aii;
-        } else {
-            pseudo_diagonals[particle_index] = 0.0;
-        }
-
+        pseudo_diagonals[particle_index] = safe_divide_or(numer, denom, 0.0);
         density_stars[particle_index] = self_density + dt * divergence;
     }
 }
@@ -135,14 +120,14 @@ function iisph_pseudo_ap_compute_pseudo_pressure_displacements_partial(
                 pseudo_pressure_displacements[2 * particle_index] = 0.0;
                 pseudo_pressure_displacements[2 * particle_index + 1] = 0.0;
             }
-            return;
+            continue;
         }
 
         const self_pseudo_pressure = pseudo_pressures[particle_index];
         const self_density = densities[particle_index];
         const p_over_rho_sqr = safe_divide_or(
             self_pseudo_pressure,
-            self_density * self_density,
+            sqr(self_density),
             0.0
         );
 
@@ -178,7 +163,7 @@ function iisph_pseudo_ap_compute_pseudo_pressure_displacements_partial(
                     p_over_rho_sqr +
                     safe_divide_or(
                         neighbor_pseudo_pressure,
-                        neighbor_density * neighbor_density,
+                        sqr(neighbor_density),
                         0.0
                     );
 
@@ -340,13 +325,22 @@ function iisph_pseudo_ap_integrate_velocities_and_positions_in_place(
     positions: Float32Array,
     pseudo_pressure_displacements: Float32Array
 ): void {
-    for (let i = 0; i < 2 * particle_count; ++i) {
-        const velocity_star = velocities[i];
-        const old_position = positions[i];
-        const displacement = pseudo_pressure_displacements[i];
-        positions[i] = old_position + dt * velocity_star + displacement;
-        if (is_safe_divide(velocity_star, dt)) {
-            velocities[i] = velocity_star + displacement / dt;
+    for (let i = 0; i < particle_count; ++i) {
+        const velocity_star_x = velocities[i*2];
+        const velocity_star_y = velocities[i*2+1];
+
+        const old_position_x = positions[i*2];
+        const old_position_y = positions[i*2+1];
+
+        const displacement_x = pseudo_pressure_displacements[i*2];
+        const displacement_y = pseudo_pressure_displacements[i*2+1];
+
+        positions[i*2] = old_position_x + dt * velocity_star_x + displacement_x;
+        positions[i*2+1] = old_position_y + dt * velocity_star_y + displacement_y;
+        if (is_safe_divide(velocity_star_x, dt) &&
+            is_safe_divide(velocity_star_y, dt)) {
+            velocities[i*2] = velocity_star_x + displacement_x / dt;
+            velocities[i*2+1] = velocity_star_y + displacement_y / dt;
         }
     }
 }
@@ -454,7 +448,7 @@ export function iisph_pseudo_ap_sub_step(
             break;
         }
     }
-    // console.log("IISPH PSEUDO AP pressure iters: ", iter);
+    //console.log("IISPH PSEUDO AP pressure iters: ", iter);
 
     iisph_pseudo_ap_compute_pseudo_pressure_displacements(
         particle_count,

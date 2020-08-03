@@ -196,7 +196,7 @@ function dam_break_initial_state(
     const extent = 2.0 * support;
 
     const box_min = [0.0, 0.0];
-    const box_max = [width / 2.0, (3.25 * height) / 4.0];
+    const box_max = [width * 3.0 / 4.0, (3.25 * height) / 4.0];
 
     // const max_count = 100 + estimate_solid_box_emission_count(box_min, box_max,
     // R); let state = create_simulation_state(max_count);
@@ -384,36 +384,36 @@ function std_adaptive_time_step(
         return a < lo ? lo : a > hi ? hi : a;
     };
 
-    // while (remaining_sub_steps > 0) {
-    //     const cfl_step = cfl_maximum_time_step(
-    //         particle_count,
-    //         config.params.support,
-    //         cfl_factor,
-    //         fluid_state.velocities
-    //     );
+    while (remaining_sub_steps > 0) {
+        const cfl_step = cfl_maximum_time_step(
+            particle_count,
+            config.params.support,
+            cfl_factor,
+            fluid_state.velocities
+        );
 
-    //     let num_sub_steps = Math.ceil(cfl_step / min_sub_time_step);
-    //     num_sub_steps = clamp(num_sub_steps, 1, sub_step_divisor);
-    //     num_sub_steps = Math.min(num_sub_steps, remaining_sub_steps);
+        let num_sub_steps = Math.ceil(cfl_step / min_sub_time_step);
+        num_sub_steps = clamp(num_sub_steps, 1, sub_step_divisor);
+        num_sub_steps = Math.min(num_sub_steps, remaining_sub_steps);
 
-    //     const sub_time_step = num_sub_steps * min_sub_time_step;
+        const sub_time_step = num_sub_steps * min_sub_time_step;
 
-    const sub_time_step = 1.0 / 30.0 / 10.0;
+        //const sub_time_step = 1.0 / 30.0 / 30.0;
 
-    sub_step(
-        time,
-        sub_time_step,
-        config,
-        fluid_state,
-        fluid_temp_data,
-        solid_state,
-        solid_temp_data,
-        user_forces
-    );
+        sub_step(
+            time,
+            sub_time_step,
+            config,
+            fluid_state,
+            fluid_temp_data,
+            solid_state,
+            solid_temp_data,
+            user_forces
+        );
 
-    //remaining_sub_steps -= num_sub_steps;
-    //time += sub_time_step;
-    //}
+        remaining_sub_steps -= num_sub_steps;
+        time += sub_time_step;
+    }
 }
 
 function gravity_forces(
@@ -427,7 +427,7 @@ function gravity_forces(
 ): void {
     const count = fluid_state.positions.length / 2;
     for (let i = 0; i < count; ++i) {
-        fluid_temp_data.external_forces[2 * i] = 0.0;
+        fluid_temp_data.external_forces[2 * i + 0] = 0.0;
         fluid_temp_data.external_forces[2 * i + 1] =
             -config.mass_per_particle * config.params.gravity;
     }
@@ -470,6 +470,14 @@ export class Simple_simulation {
             this.solid_temp_data.self_neighborhood.counts,
             this.solid_temp_data.self_neighborhood.kernels
         );
+
+        compute_constant_volumes(
+            solid_count,
+            this.config.params.target_density,
+            this.config.mass_per_particle,
+            this.solid_temp_data.volumes
+        );
+
         color_from_neighbor_count(
             solid_count,
             this.solid_state.colors,
@@ -522,12 +530,6 @@ export class Simple_simulation {
             this.fluid_state.colors,
             this.fluid_temp_data.densities
         );
-
-        // color_from_neighbor_count(
-        //     fluid_count,
-        //     this.fluid_state.colors,
-        //     this.fluid_temp_data.other_neighborhood.counts
-        // );
 
         this.accumulated_time = 0;
     }
@@ -584,24 +586,6 @@ export class Simple_simulation {
     step(delta_time: number): void {
         const count = this.fluid_state.positions.length / 2;
 
-        // simple_simulation_step(
-        //     this.fluid_state,
-        //     delta_time,
-        //     this.config.draw_radius,
-        //     this.config.params.width,
-        //     this.config.params.height
-        // );
-
-        // compute_all_neighborhoods(
-        //     this.config,
-        //     this.fluid_state,
-        //     this.fluid_temp_data,
-        //     this.solid_state,
-        //     this.solid_temp_data
-        // );
-        // compute_all_neighborhood_kernels(this.config, this.fluid_temp_data.self_neighborhood);
-        // compute_all_neighborhood_kernels(this.config, this.fluid_temp_data.other_neighborhood);
-
         std_adaptive_time_step(
             iisph_pseudo_ap_sub_step,
             60,
@@ -616,17 +600,38 @@ export class Simple_simulation {
             gravity_forces
         );
 
-        // color_from_neighbor_count(
-        //     count,
-        //     this.fluid_state.colors,
-        //     this.fluid_temp_data.other_neighborhood.counts
-        // );
+        const solid_count = this.solid_state.positions.length / 2;
+        fill_float_array(count * 3, 0.25, this.fluid_state.colors);
+        fill_float_array(solid_count * 3, 0.2, this.solid_state.colors);
 
-        color_from_density(
-            count,
-            this.config.params.target_density,
-            this.fluid_state.colors,
-            this.fluid_temp_data.densities
-        );
+        for (let i = 0; i < count; i += 1) {
+
+            let fluid_nbhd_count = this.fluid_temp_data.self_neighborhood.counts[i];
+            for (let j = 0; j < fluid_nbhd_count; ++j) {
+                let nbr_i = this.fluid_temp_data.self_neighborhood.indices[i * MAX_NEIGHBORS + j];
+
+                let kernel = this.fluid_temp_data.self_neighborhood.kernels[i * MAX_NEIGHBORS + j];
+                let volume = this.fluid_temp_data.volumes[nbr_i];
+                let k = kernel * volume;
+
+                this.fluid_state.colors[nbr_i * 3] += 0.5 * k;
+                this.fluid_state.colors[nbr_i * 3 + 1] += 1.0 * k;
+                this.fluid_state.colors[nbr_i * 3 + 2] += 0.5 * k;
+            }
+
+            let solid_nbhd_count = this.fluid_temp_data.other_neighborhood.counts[i];
+            for (let j = 0; j < solid_nbhd_count; ++j) {
+                let nbr_i = this.fluid_temp_data.other_neighborhood.indices[i * MAX_NEIGHBORS + j];
+
+                let kernel = this.fluid_temp_data.other_neighborhood.kernels[i * MAX_NEIGHBORS + j];
+                let volume = this.solid_temp_data.volumes[nbr_i];
+                let k = kernel * volume;
+                k *= 5;
+
+                this.solid_state.colors[nbr_i * 3] = 0.5;
+                this.solid_state.colors[nbr_i * 3 + 1] += 0.5 * k;
+                this.solid_state.colors[nbr_i * 3 + 2] += 1.0 * k;
+            }
+        }
     }
 }

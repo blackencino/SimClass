@@ -115,7 +115,7 @@ function kernel_sph_dwa(r: number, h: number) {
 }
 
 function kernel_sph_dwb(r: number, h: number) {
-    return (3.0 * sqr(2.0 - r / h)) / (4.0 * h);
+    return (-3.0 * sqr(2.0 - r / h)) / (4.0 * h);
 }
 
 function kernel_sph_dw(r: number, h: number) {

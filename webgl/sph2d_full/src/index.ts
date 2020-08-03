@@ -67,8 +67,8 @@ function init() {
             const delta_time = new_time - prev_time;
             prev_time = new_time;
             const delta_time_seconds = Math.min(3.0, 0.001 * delta_time);
-            //simulation.step(delta_time_seconds);
-            //simulation_renderer.update_buffers(simulation.fluid_state);
+            simulation.step(delta_time_seconds);
+            simulation_renderer.update_buffers(simulation.fluid_state);
         }
 
         simulation_renderer.render(
@@ -106,7 +106,15 @@ function init() {
     if (step_button) {
         step_button.onclick = () => {
             simulation.step(0.0);
-            simulation_renderer.update_buffers(simulation.fluid_state);
+            //simulation_renderer.update_buffers(simulation.fluid_state);
+            simulation_renderer.fluid_renderer.update_buffers(
+                simulation.fluid_state.positions,
+                simulation.fluid_state.colors
+            );
+            simulation_renderer.solid_renderer.update_buffers(
+                simulation.solid_state.positions,
+                simulation.solid_state.colors
+            );
 
             simulation_renderer.render(
                 Boolean(color_checkbox.checked),

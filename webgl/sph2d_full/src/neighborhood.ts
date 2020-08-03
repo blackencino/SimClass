@@ -267,37 +267,6 @@ export function compute_neighborhoods(
             for (let ii = grid_coord_i - 1; ii <= grid_coord_i + 1; ++ii) {
                 const other_z_index = morton(ii, j);
                 const found_block = other_block_map.get(other_z_index);
-                // if (ii < 0 || j < 0) {
-                //     console.log('negative morton index: ', other_z_index, grid_coord_i, grid_coord_j, ii, j);
-                //     if (found_block) {
-                //         console.log("FOUND A NEGATIVE BLOCK");
-                //     }
-                // }
-                // if (ii == -3 || j == -3) {
-                //     console.log("Testing -3, -3 for z_index: ", other_z_index);
-                //     other_block_map.forEach((block: Block, index: number) => {
-                //         for (let sip = block.begin; sip != block.end; ++sip) {
-                //             const test_zindex = other_sorted_index_pairs[sip * 2];
-                //             const test_i = other_sorted_index_pairs[sip * 2 + 1];
-                //             const px = other_positions[test_i * 2];
-                //             const py = other_positions[test_i * 2 + 1];
-                //             const gci = Math.floor(px / max_distance);
-                //             const gcj = Math.floor(py / max_distance);
-                //             if (gci < 1 && gcj < 1) {
-                //                 console.log(
-                //                     "Test block: ",
-                //                     test_zindex,
-                //                     test_i,
-                //                     px,
-                //                     py,
-                //                     gci,
-                //                     gcj,
-                //                     sip
-                //                 );
-                //             }
-                //         }
-                //     });
-                // }
                 if (found_block === undefined) {
                     continue;
                 }
@@ -369,8 +338,8 @@ export function compute_neighbor_kernel_gradients(
         const neighbor_count = neighbor_counts[particle_index];
         for (let j = 0; j < neighbor_count; ++j) {
             const gradw = kernel_sph_gradw(
-                neighbor_vectors_to[(particle_index * MAX_NEIGHBORS + j) * 2],
-                neighbor_vectors_to[(particle_index * MAX_NEIGHBORS + j) * 2 + 1],
+                -neighbor_vectors_to[(particle_index * MAX_NEIGHBORS + j) * 2],
+                -neighbor_vectors_to[(particle_index * MAX_NEIGHBORS + j) * 2 + 1],
                 support
             );
             neighbor_kernel_gradients[(particle_index * MAX_NEIGHBORS + j) * 2] = gradw[0];
