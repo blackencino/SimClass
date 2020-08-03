@@ -31,9 +31,11 @@ function init() {
     }
 
     const params = default_parameters();
-    params.support = 0.025;
-    params.width = 1.0;
-    params.height = 1.0;
+    const scale = 128;
+    const aspect = canvas.width / canvas.height;
+    params.support = 0.025 * scale;
+    params.width = scale;
+    params.height = scale / aspect;
     simulation = new Simple_simulation(params);
 
     try {

@@ -29,76 +29,6 @@ import { iisph_pseudo_ap_sub_step } from "./iisph_pseudo_ap";
 //import "es6-shim";
 
 //------------------------------------------------------------------------------
-function simple_simulation_step(
-    state: State,
-    delta_time: number,
-    radius: number,
-    width: number,
-    height: number
-): void {
-    const POINT_COUNT = state.positions.length / 2;
-    // X-coordinates
-    for (let i = 0; i < 2 * POINT_COUNT; i += 2) {
-        state.positions[i] += delta_time * state.velocities[i];
-        if (state.positions[i] - radius < 0) {
-            // Move point back onto rectangle and make sure it is moving
-            // in positive direction
-            state.positions[i] = radius - (state.positions[i] - radius);
-            state.velocities[i] = Math.abs(state.velocities[i]);
-        } else if (state.positions[i] + radius > width) {
-            // Move point back onto rectangle and make sure it is moving
-            // in negative direction
-            state.positions[i] = width - (state.positions[i] + radius - width) - radius;
-            state.velocities[i] = -Math.abs(state.velocities[i]);
-        }
-    }
-    // Y-coordinates
-    for (let i = 1; i < 2 * POINT_COUNT; i += 2) {
-        state.positions[i] += delta_time * state.velocities[i];
-        if (state.positions[i] - radius < 0) {
-            // Move point back onto rectangle and make sure it is moving
-            // in positive direction
-            state.positions[i] = radius - (state.positions[i] - radius);
-            state.velocities[i] = Math.abs(state.velocities[i]);
-        } else if (state.positions[i] + radius > height) {
-            // Move point back onto rectangle and make sure it is moving
-            // in negative direction
-            state.positions[i] = height - (state.positions[i] + radius - height) - radius;
-            state.velocities[i] = -Math.abs(state.velocities[i]);
-        }
-    }
-}
-
-//------------------------------------------------------------------------------
-function random_box_initial_state(
-    count: number,
-    width: number,
-    height: number,
-    seed: string,
-    speed_gain: number
-): State {
-    const state = create_simulation_state_of_size(count);
-    const my_rng = seedrandom(seed);
-    // const my_rng = () => 0.5;
-    for (let i = 0; i < count; ++i) {
-        state.ids[i] = i;
-
-        // Random point in the width/height box
-        state.positions[2 * i] = width * my_rng();
-        state.positions[2 * i + 1] = height * my_rng();
-
-        const speed = speed_gain * (1.0 + 3.0 * my_rng());
-        const angle = 2.0 * Math.PI * my_rng();
-        state.velocities[2 * i] = speed * Math.cos(angle);
-        state.velocities[2 * i + 1] = speed * Math.sin(angle);
-    }
-    for (let i = 0; i < 3 * count; ++i) {
-        state.colors[i] = my_rng();
-    }
-    return state;
-}
-
-//------------------------------------------------------------------------------
 function world_walls_initial_solid_state(
     support: number,
     width: number,
@@ -398,8 +328,6 @@ function std_adaptive_time_step(
 
         const sub_time_step = num_sub_steps * min_sub_time_step;
 
-        //const sub_time_step = 1.0 / 30.0 / 30.0;
-
         sub_step(
             time,
             sub_time_step,
@@ -425,9 +353,10 @@ function gravity_forces(
     solid_state: State,
     solid_temp_data: Solid_temp_data
 ): void {
+    const gtime = 0.1 * global_time;
     const count = fluid_state.positions.length / 2;
-    const fx = config.mass_per_particle * config.params.gravity * Math.cos(0.1 * global_time);
-    const fy = config.mass_per_particle * config.params.gravity * Math.sin(0.1 * global_time);
+    const fx = config.mass_per_particle * config.params.gravity * Math.cos(gtime);
+    const fy = config.mass_per_particle * config.params.gravity * Math.sin(gtime);
     for (let i = 0; i < count; ++i) {
         fluid_temp_data.external_forces[2 * i + 0] = fx;
         fluid_temp_data.external_forces[2 * i + 1] = fy;
@@ -472,19 +401,6 @@ export class Simple_simulation {
             this.solid_temp_data.self_neighborhood.kernels
         );
 
-        compute_constant_volumes(
-            solid_count,
-            this.config.params.target_density,
-            this.config.mass_per_particle,
-            this.solid_temp_data.volumes
-        );
-
-        color_from_neighbor_count(
-            solid_count,
-            this.solid_state.colors,
-            this.solid_temp_data.self_neighborhood.counts
-        );
-
         this.fluid_state = dam_break_initial_state(
             this.config.params.support,
             this.config.params.width,
@@ -492,14 +408,6 @@ export class Simple_simulation {
             this.solid_state,
             this.solid_temp_data
         );
-        // this.fluid_state = random_box_initial_state(
-        //     1000,
-        //     this.config.params.width,
-        //     this.config.params.height,
-        //     "random_box_initial_state",
-        //     30.0
-        // );
-
         const fluid_count = this.fluid_state.positions.length / 2;
 
         // Make a fluid temp state
@@ -543,13 +451,6 @@ export class Simple_simulation {
             this.solid_state,
             this.solid_temp_data
         );
-        // this.fluid_state = random_box_initial_state(
-        //     1000,
-        //     this.config.params.width,
-        //     this.config.params.height,
-        //     "random_box_initial_state",
-        //     30.0
-        // );
 
         const fluid_count = this.fluid_state.positions.length / 2;
 
@@ -591,7 +492,7 @@ export class Simple_simulation {
             iisph_pseudo_ap_sub_step,
             60,
             5,
-            0.2,
+            0.25,
             this.accumulated_time,
             this.config,
             this.fluid_state,
