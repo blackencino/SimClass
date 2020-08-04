@@ -475,6 +475,9 @@ export class Simple_simulation {
     }
 
     reset(): void {
+        this.wheel_angle = 0.0;
+        this.water_wheel.set_pose(this.wheel_angle, this.wheel_angular_velocity);
+
         this.fluid_state = dam_break_initial_state(
             this.config.params.support,
             this.config.params.width,
@@ -521,8 +524,6 @@ export class Simple_simulation {
         );
         this.accumulated_time = 0;
 
-        this.wheel_angle = 0.0;
-        this.water_wheel.set_pose(this.wheel_angle, this.wheel_angular_velocity);
     }
 
     step(wheel_animate: boolean): void {
