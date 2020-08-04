@@ -24,6 +24,7 @@ import {
     User_forces_function,
     compute_densities,
 } from "./sph_common";
+import { Water_wheel } from "./water_wheel";
 import { iisph_pseudo_ap_sub_step } from "./iisph_pseudo_ap";
 
 //import "es6-shim";
@@ -353,7 +354,7 @@ function gravity_forces(
     solid_state: State,
     solid_temp_data: Solid_temp_data
 ): void {
-    const gtime = 0.1 * global_time;
+    const gtime = (3.0 * Math.PI) / 2.0; //0.1 * global_time;
     const count = fluid_state.positions.length / 2;
     const fx = config.mass_per_particle * config.params.gravity * Math.cos(gtime);
     const fy = config.mass_per_particle * config.params.gravity * Math.sin(gtime);
@@ -366,40 +367,64 @@ function gravity_forces(
 //------------------------------------------------------------------------------
 export class Simple_simulation {
     config: Config;
+    water_wheel: Water_wheel;
     solid_state: State;
     solid_temp_data: Solid_temp_data;
     fluid_state: State;
     fluid_temp_data: Fluid_temp_data;
     accumulated_time: number;
+    wheel_angle: number;
+    wheel_angular_velocity: number;
 
     constructor(params: Parameters) {
         this.config = new Config(params);
         const HHalf = 0.5 * this.config.params.support;
 
-        this.solid_state = world_walls_initial_solid_state(
-            this.config.params.support,
-            this.config.params.width,
-            this.config.params.height,
-            "world_walls_initial_solid_state"
-        );
+        this.wheel_angle = 0.0;
+        this.wheel_angular_velocity = (Math.PI * 2.0) / 30.1;
 
-        const solid_count = this.solid_state.positions.length / 2;
-        this.solid_temp_data = new Solid_temp_data(solid_count);
-        compute_neighborhood_parts(this.config, this.solid_state, this.solid_temp_data);
-        compute_self_neighborhoods(
+        const X = this.config.params.width;
+        this.water_wheel = new Water_wheel(
             this.config,
-            this.solid_temp_data.self_neighborhood,
-            this.solid_state,
-            this.solid_temp_data
+            X / 5.0,
+            X / 3.25,
+            X / 20.0,
+            X / 20.0,
+            X / 20.0,
+            4,
+            11,
+            this.wheel_angle,
+            this.wheel_angular_velocity,
+            this.config.params.width / 2.0,
+            this.config.params.height / 2.0
         );
-        compute_all_neighborhood_kernels(this.config, this.solid_temp_data.self_neighborhood);
-        compute_volumes(
-            solid_count,
-            this.config.params.support,
-            this.solid_temp_data.volumes,
-            this.solid_temp_data.self_neighborhood.counts,
-            this.solid_temp_data.self_neighborhood.kernels
-        );
+        this.solid_state = this.water_wheel.state;
+        this.solid_temp_data = this.water_wheel.temp_data;
+
+        // this.solid_state = world_walls_initial_solid_state(
+        //     this.config.params.support,
+        //     this.config.params.width,
+        //     this.config.params.height,
+        //     "world_walls_initial_solid_state"
+        // );
+
+        // const solid_count = this.solid_state.positions.length / 2;
+        // this.solid_temp_data = new Solid_temp_data(solid_count);
+        // compute_neighborhood_parts(this.config, this.solid_state, this.solid_temp_data);
+        // compute_self_neighborhoods(
+        //     this.config,
+        //     this.solid_temp_data.self_neighborhood,
+        //     this.solid_state,
+        //     this.solid_temp_data
+        // );
+        // compute_all_neighborhood_kernels(this.config, this.solid_temp_data.self_neighborhood);
+        // compute_volumes(
+        //     solid_count,
+        //     this.config.params.support,
+        //     this.solid_temp_data.volumes,
+        //     this.solid_temp_data.self_neighborhood.counts,
+        //     this.solid_temp_data.self_neighborhood.kernels
+        // );
 
         this.fluid_state = dam_break_initial_state(
             this.config.params.support,
@@ -421,6 +446,12 @@ export class Simple_simulation {
         );
         compute_all_neighborhood_kernels(this.config, this.fluid_temp_data.self_neighborhood);
         compute_all_neighborhood_kernels(this.config, this.fluid_temp_data.other_neighborhood);
+        compute_constant_volumes(
+            fluid_count,
+            this.config.params.target_density,
+            this.config.mass_per_particle,
+            this.fluid_temp_data.volumes
+        );
 
         compute_densities(
             fluid_count,
@@ -465,6 +496,12 @@ export class Simple_simulation {
         );
         compute_all_neighborhood_kernels(this.config, this.fluid_temp_data.self_neighborhood);
         compute_all_neighborhood_kernels(this.config, this.fluid_temp_data.other_neighborhood);
+        compute_constant_volumes(
+            fluid_count,
+            this.config.params.target_density,
+            this.config.mass_per_particle,
+            this.fluid_temp_data.volumes
+        );
         compute_densities(
             fluid_count,
             this.config.params.support,
@@ -483,9 +520,20 @@ export class Simple_simulation {
             this.fluid_temp_data.densities
         );
         this.accumulated_time = 0;
+
+        this.wheel_angle = 0.0;
+        this.water_wheel.set_pose(this.wheel_angle, this.wheel_angular_velocity);
     }
 
-    step(delta_time: number): void {
+    step(wheel_animate: boolean): void {
+        if (wheel_animate) {
+            this.wheel_angle += this.config.params.seconds_per_step * this.wheel_angular_velocity;
+            while (this.wheel_angle >= 2 * Math.PI) {
+                this.wheel_angle -= 2 * Math.PI;
+            }
+            this.water_wheel.set_pose(this.wheel_angle, this.wheel_angular_velocity);
+        }
+
         const count = this.fluid_state.positions.length / 2;
 
         std_adaptive_time_step(

@@ -57,20 +57,29 @@ function init() {
     var animate_checkbox = document.getElementById("animateCheckbox") as HTMLInputElement;
     var color_checkbox = document.getElementById("colorCheckbox") as HTMLInputElement;
     var size_choice = document.getElementById("sizeChoice") as HTMLSelectElement;
-    var animating = true;
+    var wheel_animate_checkbox = document.getElementById("wheelAnimateCheckbox") as HTMLInputElement;
 
     animate_checkbox.checked = true;
     color_checkbox.checked = true;
     size_choice.value = "1.0";
+    wheel_animate_checkbox.checked = true;
 
     var prev_time = performance.now();
     var do_frame = (new_time: number): void => {
         if (new_time > prev_time) {
-            const delta_time = new_time - prev_time;
-            prev_time = new_time;
-            const delta_time_seconds = Math.min(3.0, 0.001 * delta_time);
-            simulation.step(delta_time_seconds);
-            simulation_renderer.update_buffers(simulation.fluid_state);
+            // const delta_time = new_time - prev_time;
+            // prev_time = new_time;
+            // const delta_time_seconds = Math.min(3.0, 0.001 * delta_time);
+            simulation.step(Boolean(wheel_animate_checkbox.checked));
+            //simulation_renderer.update_buffers(simulation.fluid_state);
+            simulation_renderer.fluid_renderer.update_buffers(
+                simulation.fluid_state.positions,
+                simulation.fluid_state.colors
+            );
+            simulation_renderer.solid_renderer.update_buffers(
+                simulation.solid_state.positions,
+                simulation.solid_state.colors
+            );
         }
 
         simulation_renderer.render(
@@ -96,6 +105,7 @@ function init() {
 
     color_checkbox.onchange = regular_change;
     size_choice.onchange = regular_change;
+    wheel_animate_checkbox.onchange = regular_change;
 
     animate_checkbox.onchange = () => {
         if (animate_checkbox.checked) {
@@ -107,16 +117,16 @@ function init() {
     var step_button = document.getElementById("stepButton");
     if (step_button) {
         step_button.onclick = () => {
-            simulation.step(0.0);
+            simulation.step(Boolean(wheel_animate_checkbox.checked));
             //simulation_renderer.update_buffers(simulation.fluid_state);
             simulation_renderer.fluid_renderer.update_buffers(
                 simulation.fluid_state.positions,
                 simulation.fluid_state.colors
             );
-            // simulation_renderer.solid_renderer.update_buffers(
-            //     simulation.solid_state.positions,
-            //     simulation.solid_state.colors
-            // );
+            simulation_renderer.solid_renderer.update_buffers(
+                simulation.solid_state.positions,
+                simulation.solid_state.colors
+            );
 
             simulation_renderer.render(
                 Boolean(color_checkbox.checked),
